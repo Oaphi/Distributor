@@ -1,9 +1,10 @@
 {
-  "name": "distributor",
+  "name": "@oaphi/distributor",
   "version": "1.0.0",
   "description": "Streams source files in dist folder",
   "main": "distributor.js",
   "scripts": {
+    "lint": "eslint --fix src/**",
     "test": "mocha"
   },
   "keywords": [
@@ -17,10 +18,19 @@
   "devDependencies": {
     "chai": "^4.2.0",
     "chai-as-promised": "^7.1.1",
+    "eslint": "^6.8.0",
+    "jsdoc": "^3.6.4",
     "mocha": "^7.1.1"
   },
   "dependencies": {
     "chalk": "^4.0.0",
     "yargs": "^15.3.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:Oaphi/distributor.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
   }
 }

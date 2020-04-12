@@ -1,11 +1,11 @@
-const { execSync } = require('child_process');
-const fs = require('fs');
-const pt = require('path');
-const { promisify } = require('util');
+const { execSync } = require("child_process");
+const fs = require("fs");
+const pt = require("path");
+const { promisify } = require("util");
 
-const yargs = require('yargs');
+const yargs = require("yargs");
 
-const { yellow } = require('chalk');
+const { yellow } = require("chalk");
 
 const asyncExists = promisify(fs.exists);
 const asyncCreate = promisify(fs.appendFile);
@@ -52,6 +52,7 @@ const dirR = async (path, callback, errorHandler = err => console.error(err)) =>
     try {
         const files = await asyncReaddir(path);
         const result = await Promise.all(files.map(processEntry));
+
         return result.filter(e => e).flat();
     }
     catch (err) {
@@ -60,7 +61,7 @@ const dirR = async (path, callback, errorHandler = err => console.error(err)) =>
 };
 
 const findConfig = async () => {
-    log(`Searching for config file...`);
+    log("Searching for config file...");
 
     try {
         const config = await dirR(process.cwd(), (path, fname) => /^\.*distrc\.js\w*$/.test(fname))
@@ -68,12 +69,16 @@ const findConfig = async () => {
                 const { length } = res;
 
                 if (!length) {
-                    log(`No config file found, skipping...`);
+                    log("No config file found, skipping...");
+
                     return null;
                 }
 
-                const config = fs.readFileSync(res[0]);
+                const [configPath] = res;
+
+                const config = fs.readFileSync(configPath);
                 const parsed = JSON.parse(config);
+
                 return parsed;
             });
 
@@ -104,7 +109,7 @@ const iterateEntries = async (dir, order, ignore) => {
 
             ignore.every(
                 check => {
-                    execSync(`grep -E "${check}" -`,{
+                    execSync(`grep -E "${check}" -`, {
                         input: entry.name
                     });
                 }
@@ -119,11 +124,14 @@ const iterateEntries = async (dir, order, ignore) => {
         .sort((a, b) => {
             const aOrder = order.lastIndexOf(a.name);
             const bOrder = order.lastIndexOf(b.name);
+
             return aOrder - bOrder;
         });
 
     return entries;
 };
+
+const plusOne = num => num + 1;
 
 /**
  * 
@@ -135,8 +143,9 @@ const exportToDist = (argv = {}) => (config = {}) => {
 
     asyncExists(output)
         .then(status => {
-            log('Finished checking dist');
-            return !status && asyncCreate(output, '');
+            log("Finished checking dist");
+
+            return !status && asyncCreate(output, "");
         })
         .catch(creationError => {
             console.warn({ creationError });
@@ -153,7 +162,7 @@ const exportToDist = (argv = {}) => (config = {}) => {
 
                     const entries = await iterateEntries(dir, order, ignore);
 
-                    log('Started piping into dist');
+                    log("Started piping into dist");
 
                     for (const entry of entries) {
                         const { name } = entry;
@@ -162,11 +171,11 @@ const exportToDist = (argv = {}) => (config = {}) => {
 
                         const { size } = fs.statSync(filePath);
 
-                        const dist = fs.createWriteStream(output, { flags: 'r+', start: startFrom });
+                        const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
 
-                        fs.createReadStream(filePath).pipe(dist).write('\n');
+                        fs.createReadStream(filePath).pipe(dist).write("\n");
 
-                        startFrom += size + 1;
+                        startFrom += plusOne(size);
                     }
 
                     (startFrom < distSize) && asyncTrunc(output, startFrom);
@@ -174,46 +183,46 @@ const exportToDist = (argv = {}) => (config = {}) => {
                 .catch(updateError => {
                     console.warn({ updateError });
                 })
-                .finally(() => log('Finished piping into dist'));
+                .finally(() => log("Finished piping into dist"));
         });
 };
 
-const colorMap = new Map().set('change', yellow);
+const colorMap = new Map().set("change", yellow);
 
 yargs
     .options({
-        'source': {
-            aliases: ["i", "input"],
-            type: "string",
-            default: "src",
-            describe: "Source path"
-        },
-        'name': {
-            type: "string",
+        "name": {
             default: "dist.js",
-            describe: "Output file path"
+            describe: "Output file path",
+            type: "string"
         },
-        'output': {
+        "output": {
             aliases: ["o", "out"],
-            type: "string",
             default: "dist",
-            describe: "Output source path"
+            describe: "Output source path",
+            type: "string"
         },
-        'start': {
+        "source": {
+            aliases: ["i", "input"],
+            default: "src",
+            describe: "Source path",
+            type: "string"
+        },
+        "start": {
             alias: "s",
-            type: "boolean",
             default: false,
-            describe: "Pipe at launch"
+            describe: "Pipe at launch",
+            type: "boolean"
         },
-        'watch': {
+        "watch": {
             alias: "w",
-            type: "boolean",
             default: false,
-            describe: "Watch files"
+            describe: "Watch files",
+            type: "boolean"
         }
     })
-    .command('$0','Pipes files into distribution')
-    .middleware( (args) => {
+    .command("$0", "Pipes files into distribution")
+    .middleware((args) => {
         const { name, output } = args;
         const outputPath = pt.resolve(output, name);
         args.output = outputPath;
@@ -238,8 +247,8 @@ const run = (argv) => {
         log(colour(`Source file ${fname} ${event}d`));
 
         await findConfig()
-        .then(distWithArgs)
-        .catch(log);
+            .then(distWithArgs)
+            .catch(log);
     });
 
 };
