@@ -3,6 +3,16 @@ const _ = require("lodash");
 const fs = require("fs");
 
 /**
+ * @summary clears array
+ * @param {any[]} array 
+ * @returns {any[]}
+ */
+const clear = (array) => {
+    array.length = 0;
+    return array;
+};
+
+/**
  * @summary check if error is ENOENT
  * @param {Error} error 
  * @returns {boolean}
@@ -32,6 +42,15 @@ const parseFile = (path) => {
     const file = fs.readFileSync(path);
     
     return JSON.parse(file);
+};
+
+/**
+ * @summary formats number into percent string
+ * @param {number} float 
+ * @returns {string}
+ */
+const percentify = (float) => {
+    return `${Math.floor(float * 100)}%`;
 };
 
 /**
@@ -68,7 +87,7 @@ const pushIfNew = (array, element) => {
     return array.length;
 };
 
-const clear = (array) => (array.length = 0);
+
 
 module.exports = {
     clear,
@@ -77,5 +96,6 @@ module.exports = {
     isNotPermitted,
     log,
     parseFile,
+    percentify,
     pushIfNew
 };

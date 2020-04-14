@@ -13,7 +13,7 @@ const asyncTrunc = promisify(fs.truncate);
 const asyncReaddir = promisify(fs.readdir);
 const asyncStat = promisify(fs.stat);
 
-const { isNotExistent, isNotPermitted, log, parseFile } = require("./utilities.js");
+const { isNotExistent, isNotPermitted, log, parseFile, percentify } = require("./utilities.js");
 const { makeJobQueue } = require("./queue.js");
 
 
@@ -258,7 +258,7 @@ const run = async (argv) => {
     const JOBS = makeJobQueue();
 
     JOBS.onFinished(() => {
-        log(`${Math.floor(JOBS.percentage * 100)}% done`);
+        log(`${percentify(JOBS.percentage)} done`);
     });
 
     JOBS.runOnNewJob().enqueue(mainJob);
