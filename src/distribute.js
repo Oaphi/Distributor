@@ -3,8 +3,7 @@ const fs = require("fs");
 const pt = require("path");
 const { promisify } = require("util");
 
-const yargs = require("yargs");
-
+const _ = require("lodash");
 const { yellow } = require("chalk");
 
 const asyncExists = promisify(fs.exists);
@@ -14,7 +13,19 @@ const asyncTrunc = promisify(fs.truncate);
 const asyncReaddir = promisify(fs.readdir);
 const asyncStat = promisify(fs.stat);
 
-const log = msg => process.stdout.write(`${JSON.stringify(msg)}\n`);
+const { isNotExistent, isNotPermitted, log, parseFile } = require("./utilities.js");
+const { makeJobQueue } = require("./queue.js");
+
+
+const CONFIG = {
+    MAX_RETRY: 3
+};
+
+/**
+ * @summary Event log colouring map
+ * @type {Map<string, function>}
+ */
+const colorMap = new Map().set("change", yellow);
 
 /**
  * 
@@ -22,6 +33,7 @@ const log = msg => process.stdout.write(`${JSON.stringify(msg)}\n`);
  * @param {Function} callback 
  * @param {Function} [errorHandler]
  * @returns {Promise}
+ * @async
  */
 const dirR = async (path, callback, errorHandler = err => console.error(err)) => {
 
@@ -60,26 +72,31 @@ const dirR = async (path, callback, errorHandler = err => console.error(err)) =>
     }
 };
 
+/**
+ * @summary Searches path starting from CWD for config
+ * @returns {Promise<object>}
+ * @async
+ */
 const findConfig = async () => {
     log("Searching for config file...");
 
     try {
-        const config = await dirR(process.cwd(), (path, fname) => /^\.*distrc\.js\w*$/.test(fname))
+        const config = await dirR(
+            process.cwd(),
+            (path, fname) => /^\.*distrc\.*js\w*$/.test(fname)
+        )
             .then(res => {
                 const { length } = res;
 
                 if (!length) {
                     log("No config file found, skipping...");
-
+                    
                     return null;
                 }
 
                 const [configPath] = res;
 
-                const config = fs.readFileSync(configPath);
-                const parsed = JSON.parse(config);
-
-                return parsed;
+                return parseFile(configPath);
             });
 
         return config;
@@ -94,13 +111,13 @@ const findConfig = async () => {
 /**
  * @summary Entry iterator
  * @param {Dir} dir 
- * @param {String[]} order
- * @param {string[]} ignore
+ * @param {String[]} [order]
+ * @param {string[]} [ignore]
  * @returns {any[]}
+ * @async
  */
-const iterateEntries = async (dir, order, ignore) => {
+const iterateEntries = async (dir, order = [], ignore = []) => {
     const entries = [];
-
 
     for await (const entry of dir) {
         try {
@@ -131,40 +148,77 @@ const iterateEntries = async (dir, order, ignore) => {
     return entries;
 };
 
-const plusOne = num => num + 1;
 
 /**
- * 
- * @param {*} config 
+ * @summary stats the path or tries to create it
+ * @param {string} path 
+ * @param {number} [retried] 
+ * @returns {object}
+ * @throws {Error}
  */
-const exportToDist = (argv = {}) => (config = {}) => {
+const statIfExistOrCreate = (path, retried = 0) => {
+
+    try {
+
+        const stat = fs.statSync(path);
+
+        return stat;
+
+    } catch (error) {
+
+        if (isNotPermitted(error)) {
+            throw new Error("Not enough permissions to create path");
+        }
+
+        if (isNotExistent(error) && retried <= CONFIG.MAX_RETRY) {
+            retried += 1;
+
+            const parsedPath = pt.parse(path);
+
+            const { dir } = parsedPath;
+
+            fs.existsSync(dir) || fs.mkdirSync(dir, { recursive: true });
+
+            fs.appendFileSync(path, "");
+
+            return statIfExistOrCreate(path, retried);
+        }
+
+    }
+
+};
+
+/**
+ * @summary pipes source files to dist
+ * @param {object} argv
+ * @returns {Promise<void>}
+ */
+const exportToDist = (argv) => {
 
     const { output, source } = argv;
 
-    asyncExists(output)
-        .then(status => {
-            log("Finished checking dist");
+    log("Started checking output");
 
+    return asyncExists(output)
+        .then(status => {
+            log("Finished checking output");
+            
             return !status && asyncCreate(output, "");
         })
-        .catch(creationError => {
-            console.warn({ creationError });
-        })
-        .then(() => {
-
-            asyncDir(source)
+        .catch(log)
+        .then(() => asyncDir(source)
                 .then(async dir => {
                     let startFrom = 0;
 
-                    const { size: distSize } = fs.statSync(output);
+                    const { ignore, order } = argv;
 
-                    const { ignore = [], order } = config;
+                    const { size: distSize } = statIfExistOrCreate(output);
 
                     const entries = await iterateEntries(dir, order, ignore);
 
-                    log("Started piping into dist");
+                    log("Started piping into output");
 
-                    for (const entry of entries) {
+                    _.forEach(entries, entry => {
                         const { name } = entry;
 
                         const filePath = pt.join(dir.path, name);
@@ -175,82 +229,60 @@ const exportToDist = (argv = {}) => (config = {}) => {
 
                         fs.createReadStream(filePath).pipe(dist).write("\n");
 
-                        startFrom += plusOne(size);
-                    }
+                        startFrom += size + 1;
+                    });
 
                     (startFrom < distSize) && asyncTrunc(output, startFrom);
                 })
-                .catch(updateError => {
-                    console.warn({ updateError });
-                })
-                .finally(() => log("Finished piping into dist"));
-        });
+                .catch(log)
+                .finally(() => {
+                    log("Finished piping into dist");
+                }))
+        .catch(log);
 };
 
-const colorMap = new Map().set("change", yellow);
 
-yargs
-    .options({
-        "name": {
-            default: "dist.js",
-            describe: "Output file path",
-            type: "string"
-        },
-        "output": {
-            aliases: ["o", "out"],
-            default: "dist",
-            describe: "Output source path",
-            type: "string"
-        },
-        "source": {
-            aliases: ["i", "input"],
-            default: "src",
-            describe: "Source path",
-            type: "string"
-        },
-        "start": {
-            alias: "s",
-            default: false,
-            describe: "Pipe at launch",
-            type: "boolean"
-        },
-        "watch": {
-            alias: "w",
-            default: false,
-            describe: "Watch files",
-            type: "boolean"
-        }
-    })
-    .command("$0", "Pipes files into distribution")
-    .middleware((args) => {
-        const { name, output } = args;
-        const outputPath = pt.resolve(output, name);
-        args.output = outputPath;
-    })
-    .help();
+/**
+ * @summary entry point
+ * @param {Promise<object>} argv 
+ * @returns {Promise<void>}
+ */
+const run = async (argv) => {
 
-const run = (argv) => {
+    const preparedArgv = await argv;
 
-    log({ argv });
+    const { source, start, watch } = preparedArgv;
 
-    const { start, source, watch } = argv;
+    const mainJob = () => exportToDist(preparedArgv).catch(log);
 
-    const distWithArgs = exportToDist(argv);
+    const JOBS = makeJobQueue();
 
-    start && findConfig()
-        .then(distWithArgs)
-        .catch(log);
+    JOBS.onFinished(() => {
+        log(`${Math.floor(JOBS.percentage * 100)}% done`);
+    });
 
-    watch && fs.watch(source, async (event, fname) => {
+    JOBS.runOnNewJob().enqueue(mainJob);
+
+    start && JOBS.nextJob();
+
+    watch && fs.watch(source, (event, fname) => {
         const colour = colorMap.get(event);
 
         log(colour(`Source file ${fname} ${event}d`));
 
-        await findConfig()
-            .then(distWithArgs)
-            .catch(log);
+        JOBS.enqueue(mainJob);
     });
 
 };
 
-run(yargs.argv);
+
+process
+    .on("unhandledRejection", (error) => {
+        Promise.resolve();
+        log(`[FATAL] Could not complete dist flow:\n\n${error.message}`);
+    });
+
+module.exports = {
+    findConfig,
+    run
+};
