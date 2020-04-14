@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 //core modules
 const pt = require("path");
 
