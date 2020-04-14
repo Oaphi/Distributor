@@ -128,7 +128,7 @@
         "no-alert": "error",
         "no-array-constructor": "error",
         "no-await-in-loop": "error",
-        "no-bitwise": "error",
+        "no-bitwise": "off",
         "no-buffer-constructor": "error",
         "no-caller": "error",
         "no-catch-shadow": "error",
@@ -162,7 +162,7 @@
         "no-loop-func": "error",
         "no-magic-numbers": ["error", {
             "ignoreArrayIndexes": true,
-            "ignore": [1]
+            "ignore": [1,0,-1]
         }],
         "no-mixed-operators": "error",
         "no-mixed-requires": "error",
@@ -180,7 +180,7 @@
         "no-new-require": "error",
         "no-new-wrappers": "error",
         "no-octal-escape": "error",
-        "no-param-reassign": "error",
+        "no-param-reassign": "off",
         "no-path-concat": "error",
         "no-plusplus": "error",
         "no-process-env": "error",
@@ -202,7 +202,7 @@
         "no-sync": "off",
         "no-tabs": "error",
         "no-template-curly-in-string": "error",
-        "no-ternary": "error",
+        "no-ternary": "off",
         "no-throw-literal": "error",
         "no-undef-init": "error",
         "no-undefined": "error",
