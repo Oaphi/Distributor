@@ -8,7 +8,7 @@ const { clear, copyWithGetters, pushIfNew } = require("./utilities.js");
  * @param {function} callback 
  * @class
  */
-function Job(control, callback) {
+function Job (control, callback) {
 
     let running = 0;
 
@@ -28,15 +28,15 @@ function Job(control, callback) {
             return res;
         },
 
-        get error() {
+        get error () {
             return lastError;
         },
 
-        set error(val) {
+        set error (val) {
             val instanceof Error && (lastError = val);
         },
 
-        get running() {
+        get running () {
             return Boolean(running);
         }
     };
@@ -47,7 +47,7 @@ function Job(control, callback) {
  * @param {Job[]} queue 
  * @returns {number}
  */
-function runningIndex(queue) {
+function runningIndex (queue) {
     return _.findLastIndex(queue, { running: true });
 }
 
@@ -70,7 +70,7 @@ function runningIndex(queue) {
  * @summary Factory for Job queues
  * @returns {JobQueue}
  */
-function makeJobQueue() {
+function makeJobQueue () {
 
     const proto = {
 
@@ -89,7 +89,7 @@ function makeJobQueue() {
          * @summary Number of complete jobs getter
          * @returns {number}
          */
-        get complete() {
+        get complete () {
             return this.completeJobs.length;
         },
 
@@ -97,7 +97,7 @@ function makeJobQueue() {
          * @summary No jobs left getter
          * @returns {boolean}
          */
-        get empty() {
+        get empty () {
             return this.queue.length === 0;
         },
 
@@ -105,7 +105,7 @@ function makeJobQueue() {
          * @summary Number of failed jobs getter
          * @returns {number}
          */
-        get failed() {
+        get failed () {
             return this.failedJobs.length;
         },
 
@@ -113,12 +113,12 @@ function makeJobQueue() {
          * @summary Percent of processed jobs getter
          * @returns {number}
          */
-        get percentage() {
+        get percentage () {
             const { processed, size } = this;
 
             const total = processed + size;
 
-            if(!total) {
+            if (!total) {
                 return 0;
             }
 
@@ -131,8 +131,9 @@ function makeJobQueue() {
          * @summary Number of processed jobs getter
          * @returns {number}
          */
-        get processed() {
+        get processed () {
             const { complete, failed } = this;
+            
             return complete + failed;
         },
 
@@ -140,7 +141,7 @@ function makeJobQueue() {
          * @summary Any jobs running getter
          * @returns {boolean}
          */
-        get processing() {
+        get processing () {
             return this.queue.some(job => job.running);
         },
 
@@ -148,7 +149,7 @@ function makeJobQueue() {
          * @summary Current active job getter
          * @returns {Job}
          */
-        get runningJob() {
+        get runningJob () {
             const { queue } = this;
 
             return _.findLast(queue, { running: true });
@@ -158,7 +159,7 @@ function makeJobQueue() {
          * @summary Queue size getter
          * @returns {number}
          */
-        get size() {
+        get size () {
             return this.queue.length;
         },
 
@@ -166,7 +167,7 @@ function makeJobQueue() {
          * @summary Removes job from queue
          * @returns {JobQueue}
          */
-        dequeue() {
+        dequeue () {
             const { queue } = this;
 
             queue.shift();
@@ -180,7 +181,7 @@ function makeJobQueue() {
          * @param  {...any} args 
          * @returns {JobQueue}
          */
-        emit(type, ...args) {
+        emit (type, ...args) {
             const { events } = this;
 
             const listeners = events[type];
@@ -201,7 +202,7 @@ function makeJobQueue() {
          * @param  {...any} jobs 
          * @returns {JobQueue}
          */
-        enqueue(...jobs) {
+        enqueue (...jobs) {
 
             for (const job of jobs) {
                 const jobToRun = new Job(this, job);
@@ -216,8 +217,9 @@ function makeJobQueue() {
          * @summary Gets queued jobs
          * @returns {Job[]}
          */
-        getJobs() {
+        getJobs () {
             const { queue } = this;
+            
             return queue.map(job => job);
         },
 
@@ -228,7 +230,7 @@ function makeJobQueue() {
          * @emits JobQueue#finished
          * @emits JobQueue#done
          */
-        nextJob(...args) {
+        nextJob (...args) {
             const { completeJobs, failedJobs, empty, queue, processing } = this;
 
             if (empty) {
@@ -275,7 +277,7 @@ function makeJobQueue() {
          * @param {function} listener 
          * @returns {JobQueue}
          */
-        off(type, listener) {
+        off (type, listener) {
             const { events } = this;
             const listeners = events[type];
 
@@ -293,7 +295,7 @@ function makeJobQueue() {
          * @param {function} listener 
          * @returns {JobQueue}
          */
-        on(type, listener) {
+        on (type, listener) {
             const { events } = this;
             const listeners = events[type];
 
@@ -308,8 +310,9 @@ function makeJobQueue() {
          * @returns {JobQueue}
          * @listens JobQueue#done
          */
-        onDone(callback) {
+        onDone (callback) {
             this.on("done", callback);
+            
             return this;
         },
 
@@ -319,8 +322,9 @@ function makeJobQueue() {
          * @returns {JobQueue}
          * @listens JobQueue#finished
          */
-        onFinished(callback) {
+        onFinished (callback) {
             this.on("finished", callback);
+            
             return this;
         },
 
@@ -330,7 +334,7 @@ function makeJobQueue() {
          * @returns {JobQueue}
          * @listens JobQueue#added
          */
-        onNewJob(callback) {
+        onNewJob (callback) {
             this.on("added", callback);
 
             return this;
@@ -341,8 +345,8 @@ function makeJobQueue() {
          * @returns {JobQueue}
          * @listens JobQueue#done
          */
-        resetOnDone() {
-            this.on('done',() => {
+        resetOnDone () {
+            this.on("done",() => {
                 const { completeJobs, failedJobs } = this;
                 clear(completeJobs);
                 clear(failedJobs);
@@ -356,7 +360,7 @@ function makeJobQueue() {
          * @param  {...any} args 
          * @returns {JobQueue}
          */
-        run(...args) {
+        run (...args) {
             const { processing } = this;
 
             const listener = () => this.nextJob(...args);
@@ -373,7 +377,7 @@ function makeJobQueue() {
          * @param  {...any} args 
          * @returns {JobQueue}
          */
-        runOnNewJob(...args) {
+        runOnNewJob (...args) {
             this.onNewJob(() => this.run(...args));
 
             return this;
