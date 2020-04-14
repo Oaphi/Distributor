@@ -1,5 +1,7 @@
 {
     "ignore": [
         "(trees|bitwise|promises|sorting)"
-    ]
+    ],
+    "start": false,
+    "watch": true
 }
