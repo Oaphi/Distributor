@@ -2,6 +2,15 @@
     "ignore": [
         "(trees|bitwise|promises|sorting)"
     ],
+    "name": "dist.js",
+    "output": "dist",
+    "order": [
+        "utilities.js",
+        "queue.js",
+        "distribute.js",
+        "cli.js"
+    ],
+    "source": "src",
     "start": false,
     "watch": true
 }
