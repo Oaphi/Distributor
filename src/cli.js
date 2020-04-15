@@ -21,7 +21,6 @@ yargs
         }, 
         "exclude": {
             aliases: ["E"],
-            default: [],
             describe: "File paths to exclude",
             type: "array"
         },
@@ -32,7 +31,6 @@ yargs
         },
         "order": {
             aliases: ["O"],
-            default: [],
             describe: "Source files order",
             type: "array"
         },
@@ -80,7 +78,9 @@ yargs
         );
     })
     .middleware((args) => {
-        const { name, output, source } = args;
+        const { exclude, name, order, output, source } = args;
+        !exclude && (args.exclude = []);
+        !order && (args.order = []);
         !output && (args.output = 'dist');
         !source && (args.source = 'src');
         !name && (args.name = 'dist.js');
