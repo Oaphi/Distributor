@@ -129,22 +129,45 @@ const findConfig = async () => {
 
 /**
  * @summary Entry iterator
- * @param {fs.Dir} dir 
+ * @param {string} path
+ * @param {fs.Dirent[]} entriesToCheck
  * @param {String[]} [order]
  * @param {string[]} [ignore]
  * @returns {fs.Dirent[]}
  * @async
  */
-const iterateEntries = async (dir, order = [], ignore = []) => {
-    const entries = [];
+const iterateEntries = async (path, entriesToCheck, order = [], ignore = []) => {
 
     const noIgnore = ignore.length === 0;
 
-    for await (const entry of dir) {
+    const entries = [];
+
+    /**
+     * @summary Pushes entry to entries list or recurses
+     * @param {fs.Dirent} entry 
+     * @returns {Promise<void>}
+     */
+    const directoryFork = async (entry) => {
+        if (entry.isDirectory()) {
+            const dirPath = pt.join(path, entry.name);
+
+            const subEntries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+            entries.push(...(await iterateEntries(dirPath, subEntries, order, ignore)));
+            return;
+        }
+
+        entries.push(entry);
+    };
+
+    for (const entry of entriesToCheck) {
+
+        entry.path = path;
+
         try {
 
             if (noIgnore) {
-                entries.push(entry);
+                await directoryFork(entry);
                 continue;
             }
 
@@ -158,7 +181,7 @@ const iterateEntries = async (dir, order = [], ignore = []) => {
             );
 
         } catch (error) {
-            entries.push(entry);
+            await directoryFork(entry);
         }
     }
 
@@ -181,43 +204,39 @@ const iterateEntries = async (dir, order = [], ignore = []) => {
  * @returns {Promise<number>}
  */
 const readAndPipe = (path, argv, startFrom = 0) => {
-    return asyncDir(path)
-        .then(async dir => {
-
-            const { path } = dir;
+    return asyncReaddir(path, { withFileTypes: true })
+        .then(async topLevelEntries => {
 
             const { ignore, order, output, separator = '\n' } = argv;
 
             const { size: distSize } = fs.statSync(output);
 
-            const entries = await iterateEntries(dir, order, ignore);
+            const entries = await iterateEntries(path, topLevelEntries, order, ignore);
 
             const separatorByteAdd = Buffer.byteLength(separator) + 1;
 
-            _.forEach(entries, async entry => {
+            _.forEach(entries, entry => {
                 const { name } = entry;
 
-                const fullPath = pt.resolve(path, name);
+                const fullPath = pt.resolve(entry.path, name);
 
-                if (entry.isDirectory()) {
-                    startFrom = await readAndPipe(fullPath, argv, startFrom);
-                    return;
+                if (entry.isFile()) {
+                    const { size } = fs.statSync(fullPath);
+
+                    const reader = fs.createReadStream(fullPath);
+
+                    const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
+
+                    reader.pipe(dist, { end: false });
+
+                    reader
+                        .on('end', () => {
+                            dist.end(`\n${separator}`);
+                        });
+
+                    startFrom += (size + separatorByteAdd);
                 }
 
-                const { size } = fs.statSync(fullPath);
-
-                const reader = fs.createReadStream(fullPath);
-
-                const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
-
-                reader.pipe(dist, { end: false });
-
-                reader
-                    .on('end', () => {
-                        dist.end(`\n${separator}`);
-                    });
-
-                startFrom += (size + separatorByteAdd);
             });
 
             (startFrom < distSize) && asyncTrunc(output, startFrom);

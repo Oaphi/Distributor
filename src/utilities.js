@@ -87,8 +87,6 @@ const pushIfNew = (array, element) => {
     return array.length;
 };
 
-
-
 module.exports = {
     clear,
     copyWithGetters,

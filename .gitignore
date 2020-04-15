@@ -2,3 +2,5 @@
 /dist
 
 /test/cli*
+
+report*.json
