@@ -1,6 +1,6 @@
 {
   "name": "@oaphi/distributor",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Streams source files in dist folder",
   "main": "distributor.js",
   "scripts": {
