@@ -18,11 +18,23 @@ yargs
             default: "auto",
             describe: "Use external config",
             type: "string"
+        }, 
+        "exclude": {
+            aliases: ["E"],
+            default: [],
+            describe: "File paths to exclude",
+            type: "array"
         },
         "name": {
             aliases: ["n"],
             describe: "Output file path",
             type: "string"
+        },
+        "order": {
+            aliases: ["O"],
+            default: [],
+            describe: "Source files order",
+            type: "array"
         },
         "output": {
             aliases: ["o", "out"],

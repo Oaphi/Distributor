@@ -8,7 +8,6 @@ const { yellow } = require("chalk");
 
 const asyncExists = promisify(fs.exists);
 const asyncCreate = promisify(fs.appendFile);
-const asyncDir = promisify(fs.opendir);
 const asyncTrunc = promisify(fs.truncate);
 const asyncReaddir = promisify(fs.readdir);
 
@@ -131,12 +130,12 @@ const findConfig = async () => {
  * @summary Entry iterator
  * @param {string} path
  * @param {fs.Dirent[]} entriesToCheck
- * @param {String[]} [order]
+ * @param {String[]} order
  * @param {string[]} [ignore]
  * @returns {fs.Dirent[]}
  * @async
  */
-const iterateEntries = async (path, entriesToCheck, order = [], ignore = []) => {
+const iterateEntries = async (path, entriesToCheck, order, ignore = []) => {
 
     const noIgnore = ignore.length === 0;
 
@@ -185,11 +184,12 @@ const iterateEntries = async (path, entriesToCheck, order = [], ignore = []) => 
         }
     }
 
-    order && entries
+    const { length } = order;
+
+    length && entries
         .sort((a, b) => {
             const aOrder = order.lastIndexOf(a.name);
             const bOrder = order.lastIndexOf(b.name);
-
             return aOrder - bOrder;
         });
 
@@ -207,7 +207,13 @@ const readAndPipe = (path, argv, startFrom = 0) => {
     return asyncReaddir(path, { withFileTypes: true })
         .then(async topLevelEntries => {
 
-            const { ignore, order, output, separator = '\n' } = argv;
+            const { 
+                exclude = [], 
+                ignore, 
+                order = [],
+                output, 
+                separator = '\n' 
+            } = argv;
 
             const { size: distSize } = fs.statSync(output);
 
@@ -218,9 +224,11 @@ const readAndPipe = (path, argv, startFrom = 0) => {
             _.forEach(entries, entry => {
                 const { name } = entry;
 
+                const shouldNotRead = exclude.some(test => new RegExp(test).test(name));
+
                 const fullPath = pt.resolve(entry.path, name);
 
-                if (entry.isFile()) {
+                if (entry.isFile() && !shouldNotRead) {
                     const { size } = fs.statSync(fullPath);
 
                     const reader = fs.createReadStream(fullPath);
