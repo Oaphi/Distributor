@@ -1,6 +1,37 @@
 const _ = require("lodash");
 
+const pt = require('path');
 const fs = require("fs");
+
+/**
+ * @summary Cleans root path and subpaths
+ * @param {string} rootPath 
+ * @param {string[]} [ignore]
+ * @param {boolean} [removeItself]
+ */
+const removeDirRecursive = (rootPath, ignore = [], removeItself = false) => {
+    if (fs.existsSync(rootPath)) {
+
+        const entries = fs.readdirSync(rootPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const { name } = entry;
+
+            const cannotDelete = ignore.some( test => new RegExp(test).test(name) );
+
+            if (!cannotDelete) {
+                const thisPath = pt.resolve(rootPath, name);
+
+                if (fs.existsSync(thisPath)) {
+                    entry.isDirectory() && removeDirRecursive(thisPath);
+                    entry.isFile() && fs.unlinkSync(thisPath);
+                }
+            }
+        }
+
+        removeItself && fs.rmdirSync(rootPath);
+    }
+};
 
 /**
  * @summary clears array
@@ -95,5 +126,6 @@ module.exports = {
     log,
     parseFile,
     percentify,
-    pushIfNew
+    pushIfNew,
+    removeDirRecursive
 };
