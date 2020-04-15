@@ -5,7 +5,8 @@
   "main": "distributor.js",
   "scripts": {
     "lint": "eslint --fix src/**",
-    "test": "mocha"
+    "test": "mocha",
+    "test-myself": "distribute"
   },
   "keywords": [
     "dist",

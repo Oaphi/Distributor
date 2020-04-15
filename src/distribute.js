@@ -28,7 +28,7 @@ const CONFIG = {
 const colorMap = new Map().set("change", yellow);
 
 /**
- * 
+ * @summary Directory iterator
  * @param {String} path 
  * @param {Function} callback 
  * @param {Function} [errorHandler]
@@ -37,19 +37,26 @@ const colorMap = new Map().set("change", yellow);
  */
 const dirR = async (path, callback, errorHandler = err => console.error(err)) => {
 
-    const processEntry = async (fname) => {
-        const entryPath = pt.join(path, fname);
+    /**
+     * 
+     * @param {fs.Dirent} entry 
+     * @returns {Promise<any[]>}
+     */
+    const processEntry = async (entry) => {
+        const { name } = entry;
+
+        const entryPath = pt.join(path, name);
 
         try {
-            const stat = await asyncStat(entryPath);
+            if (entry.isSymbolicLink()) {
+                return null; //ignore symlinks to avoid loops
+            }
 
-            const isDir = stat.isDirectory();
-
-            if (isDir) {
+            if (entry.isDirectory()) {
                 return dirR(entryPath, callback);
             }
 
-            const status = callback(entryPath, fname);
+            const status = callback(entryPath, name);
 
             if (status) {
                 return entryPath;
@@ -62,7 +69,7 @@ const dirR = async (path, callback, errorHandler = err => console.error(err)) =>
     };
 
     try {
-        const files = await asyncReaddir(path);
+        const files = await asyncReaddir(path, { withFileTypes: true });
         const result = await Promise.all(files.map(processEntry));
 
         return result.filter(e => e).flat();
@@ -74,29 +81,47 @@ const dirR = async (path, callback, errorHandler = err => console.error(err)) =>
 
 /**
  * @summary Searches path starting from CWD for config
- * @returns {Promise<object>}
+ * @returns {Promise<?object>}
  * @async
  */
 const findConfig = async () => {
     log("Searching for config file...");
 
+    const configRegExp = /^\.*distrc\.*js\w*$/;
+
     try {
         const config = await dirR(
             process.cwd(),
-            (path, fname) => /^\.*distrc\.*js\w*$/.test(fname)
+            (path, fname) => configRegExp.test(fname)
         )
             .then(res => {
                 const { length } = res;
 
                 if (!length) {
                     log("No config file found, skipping...");
-                    
                     return null;
                 }
 
-                const [configPath] = res;
+                const examplesPath = pt.resolve(__dirname, '../examples');
 
-                return parseFile(configPath);
+                const examples = fs.readdirSync(examplesPath);
+
+                const [configPath, nextConfigPath] = res;
+
+                const caughtExample = examples.some(example => pt.join(examplesPath,example) === configPath);
+
+                if(!caughtExample) {
+                    log(`Found config file in "${configPath}"`);
+                    return parseFile(configPath);
+                }
+
+                if (caughtExample && !nextConfigPath ) {
+                    log("No config file found, skipping...");
+                    return null;
+                }
+
+                log(`Found config file in "${nextConfigPath}"`);
+                return parseFile(nextConfigPath);
             });
 
         return config;
@@ -202,42 +227,42 @@ const exportToDist = (argv) => {
     return asyncExists(output)
         .then(status => {
             log("Finished checking output");
-            
+
             return !status && asyncCreate(output, "");
         })
         .catch(log)
         .then(() => asyncDir(source)
-                .then(async dir => {
-                    let startFrom = 0;
+            .then(async dir => {
+                let startFrom = 0;
 
-                    const { ignore, order } = argv;
+                const { ignore, order } = argv;
 
-                    const { size: distSize } = statIfExistOrCreate(output);
+                const { size: distSize } = statIfExistOrCreate(output);
 
-                    const entries = await iterateEntries(dir, order, ignore);
+                const entries = await iterateEntries(dir, order, ignore);
 
-                    log("Started piping into output");
+                log("Started piping into output");
 
-                    _.forEach(entries, entry => {
-                        const { name } = entry;
+                _.forEach(entries, entry => {
+                    const { name } = entry;
 
-                        const filePath = pt.join(dir.path, name);
+                    const filePath = pt.join(dir.path, name);
 
-                        const { size } = fs.statSync(filePath);
+                    const { size } = fs.statSync(filePath);
 
-                        const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
+                    const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
 
-                        fs.createReadStream(filePath).pipe(dist).write("\n");
+                    fs.createReadStream(filePath).pipe(dist).write("\n");
 
-                        startFrom += size + 1;
-                    });
+                    startFrom += size + 1;
+                });
 
-                    (startFrom < distSize) && asyncTrunc(output, startFrom);
-                })
-                .catch(log)
-                .finally(() => {
-                    log("Finished piping into dist");
-                }))
+                (startFrom < distSize) && asyncTrunc(output, startFrom);
+            })
+            .catch(log)
+            .finally(() => {
+                log("Finished piping into dist");
+            }))
         .catch(log);
 };
 
