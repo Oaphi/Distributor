@@ -20,19 +20,17 @@ yargs
             type: "string"
         },
         "name": {
-            default: "dist.js",
+            alias: "n",
             describe: "Output file path",
             type: "string"
         },
         "output": {
             aliases: ["o", "out"],
-            default: "dist",
             describe: "Output source path",
             type: "string"
         },
         "source": {
             aliases: ["i", "input"],
-            default: "src",
             describe: "Source path",
             type: "string"
         },
@@ -64,6 +62,12 @@ yargs
             }
         );
     })
+    .middleware((args) => {
+        const { name, output, source } = args;
+        !output && (args.output = 'dist');
+        !source && (args.source = 'src');
+        !name && (args.name = 'dist.js');
+    })    
     .middleware((args) => {
         const { name, output } = args;
         const outputPath = pt.resolve(output, name);

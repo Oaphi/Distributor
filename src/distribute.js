@@ -11,7 +11,6 @@ const asyncCreate = promisify(fs.appendFile);
 const asyncDir = promisify(fs.opendir);
 const asyncTrunc = promisify(fs.truncate);
 const asyncReaddir = promisify(fs.readdir);
-const asyncStat = promisify(fs.stat);
 
 const { isNotExistent, isNotPermitted, log, parseFile, percentify } = require("./utilities.js");
 const { makeJobQueue } = require("./queue.js");
@@ -108,14 +107,14 @@ const findConfig = async () => {
 
                 const [configPath, nextConfigPath] = res;
 
-                const caughtExample = examples.some(example => pt.join(examplesPath,example) === configPath);
+                const caughtExample = examples.some(example => pt.join(examplesPath, example) === configPath);
 
-                if(!caughtExample) {
+                if (!caughtExample) {
                     log(`Found config file in "${configPath}"`);
                     return parseFile(configPath);
                 }
 
-                if (caughtExample && !nextConfigPath ) {
+                if (caughtExample && !nextConfigPath) {
                     log("No config file found, skipping...");
                     return null;
                 }
@@ -144,11 +143,17 @@ const findConfig = async () => {
 const iterateEntries = async (dir, order = [], ignore = []) => {
     const entries = [];
 
+    const noIgnore = ignore.length === 0;
+
     for await (const entry of dir) {
         try {
 
-            //grep on execSync will throw on no match
+            if (noIgnore) {
+                entries.push(entry);
+                continue;
+            }
 
+            //grep on execSync will throw on no match
             ignore.every(
                 check => {
                     execSync(`grep -E "${check}" -`, {
@@ -173,44 +178,42 @@ const iterateEntries = async (dir, order = [], ignore = []) => {
     return entries;
 };
 
-
 /**
- * @summary stats the path or tries to create it
+ * @summary Pipes source files into dist
  * @param {string} path 
- * @param {number} [retried] 
- * @returns {object}
- * @throws {Error}
+ * @param {object} argv 
+ * @returns {Promise<void>}
  */
-const statIfExistOrCreate = (path, retried = 0) => {
+const readAndPipe = (path, argv) => {
+    return asyncDir(path)
+        .then(async dir => {
+            let startFrom = 0;
 
-    try {
+            const { ignore, order, output } = argv;
 
-        const stat = fs.statSync(path);
+            const { size: distSize } = fs.statSync(output);
 
-        return stat;
+            const entries = await iterateEntries(dir, order, ignore);
 
-    } catch (error) {
+            log("Started piping into output");
 
-        if (isNotPermitted(error)) {
-            throw new Error("Not enough permissions to create path");
-        }
+            _.forEach(entries, entry => {
+                const { name } = entry;
 
-        if (isNotExistent(error) && retried <= CONFIG.MAX_RETRY) {
-            retried += 1;
+                const filePath = pt.join(dir.path, name);
 
-            const parsedPath = pt.parse(path);
+                const { size } = fs.statSync(filePath);
 
-            const { dir } = parsedPath;
+                const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
 
-            fs.existsSync(dir) || fs.mkdirSync(dir, { recursive: true });
+                fs.createReadStream(filePath).pipe(dist).write("\n");
 
-            fs.appendFileSync(path, "");
+                startFrom += size + 1;
+            });
 
-            return statIfExistOrCreate(path, retried);
-        }
-
-    }
-
+            (startFrom < distSize) && asyncTrunc(output, startFrom);
+        })
+        .catch(log);
 };
 
 /**
@@ -219,51 +222,33 @@ const statIfExistOrCreate = (path, retried = 0) => {
  * @returns {Promise<void>}
  */
 const exportToDist = (argv) => {
+    log("Started preparing output");
 
     const { output, source } = argv;
 
-    log("Started checking output");
-
     return asyncExists(output)
         .then(status => {
-            log("Finished checking output");
 
-            return !status && asyncCreate(output, "");
+            if (!status) {
+                const parsed = pt.parse(output);
+
+                const { dir } = parsed;
+
+                log("Missing output folder, creating");
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
+            return asyncCreate(output, "");
         })
         .catch(log)
-        .then(() => asyncDir(source)
-            .then(async dir => {
-                let startFrom = 0;
-
-                const { ignore, order } = argv;
-
-                const { size: distSize } = statIfExistOrCreate(output);
-
-                const entries = await iterateEntries(dir, order, ignore);
-
-                log("Started piping into output");
-
-                _.forEach(entries, entry => {
-                    const { name } = entry;
-
-                    const filePath = pt.join(dir.path, name);
-
-                    const { size } = fs.statSync(filePath);
-
-                    const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
-
-                    fs.createReadStream(filePath).pipe(dist).write("\n");
-
-                    startFrom += size + 1;
-                });
-
-                (startFrom < distSize) && asyncTrunc(output, startFrom);
-            })
-            .catch(log)
-            .finally(() => {
-                log("Finished piping into dist");
-            }))
-        .catch(log);
+        .then(() => {
+            log("Finished preparing output");
+            return readAndPipe(source, argv);
+        })
+        .catch(log)
+        .finally(() => {
+            log("Finished piping into dist");
+        });;
 };
 
 
