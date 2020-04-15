@@ -10,6 +10,7 @@
         "distribute.js",
         "cli.js"
     ],
+    "separator": "\n",
     "source": "src",
     "start": false,
     "watch": true

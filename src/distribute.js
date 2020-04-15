@@ -12,13 +12,8 @@ const asyncDir = promisify(fs.opendir);
 const asyncTrunc = promisify(fs.truncate);
 const asyncReaddir = promisify(fs.readdir);
 
-const { isNotExistent, isNotPermitted, log, parseFile, percentify } = require("./utilities.js");
+const { log, parseFile, percentify } = require("./utilities.js");
 const { makeJobQueue } = require("./queue.js");
-
-
-const CONFIG = {
-    MAX_RETRY: 3
-};
 
 /**
  * @summary Event log colouring map
@@ -134,10 +129,10 @@ const findConfig = async () => {
 
 /**
  * @summary Entry iterator
- * @param {Dir} dir 
+ * @param {fs.Dir} dir 
  * @param {String[]} [order]
  * @param {string[]} [ignore]
- * @returns {any[]}
+ * @returns {fs.Dirent[]}
  * @async
  */
 const iterateEntries = async (dir, order = [], ignore = []) => {
@@ -182,36 +177,52 @@ const iterateEntries = async (dir, order = [], ignore = []) => {
  * @summary Pipes source files into dist
  * @param {string} path 
  * @param {object} argv 
- * @returns {Promise<void>}
+ * @param {number} [startFrom]
+ * @returns {Promise<number>}
  */
-const readAndPipe = (path, argv) => {
+const readAndPipe = (path, argv, startFrom = 0) => {
     return asyncDir(path)
         .then(async dir => {
-            let startFrom = 0;
 
-            const { ignore, order, output } = argv;
+            const { path } = dir;
+
+            const { ignore, order, output, separator = '\n' } = argv;
 
             const { size: distSize } = fs.statSync(output);
 
             const entries = await iterateEntries(dir, order, ignore);
 
-            log("Started piping into output");
+            const separatorByteAdd = Buffer.byteLength(separator) + 1;
 
-            _.forEach(entries, entry => {
+            _.forEach(entries, async entry => {
                 const { name } = entry;
 
-                const filePath = pt.join(dir.path, name);
+                const fullPath = pt.resolve(path, name);
 
-                const { size } = fs.statSync(filePath);
+                if (entry.isDirectory()) {
+                    startFrom = await readAndPipe(fullPath, argv, startFrom);
+                    return;
+                }
+
+                const { size } = fs.statSync(fullPath);
+
+                const reader = fs.createReadStream(fullPath);
 
                 const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
 
-                fs.createReadStream(filePath).pipe(dist).write("\n");
+                reader.pipe(dist, { end: false });
 
-                startFrom += size + 1;
+                reader
+                    .on('end', () => {
+                        dist.end(`\n${separator}`);
+                    });
+
+                startFrom += (size + separatorByteAdd);
             });
 
             (startFrom < distSize) && asyncTrunc(output, startFrom);
+
+            return startFrom;
         })
         .catch(log);
 };
@@ -247,7 +258,7 @@ const exportToDist = (argv) => {
         })
         .catch(log)
         .finally(() => {
-            log("Finished piping into dist");
+            log("Finished piping into output");
         });;
 };
 

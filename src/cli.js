@@ -14,13 +14,13 @@ const { findConfig, run } = require("./distribute.js");
 yargs
     .options({
         "config": {
-            alias: "c",
+            aliases: ["c"],
             default: "auto",
             describe: "Use external config",
             type: "string"
         },
         "name": {
-            alias: "n",
+            aliases: ["n"],
             describe: "Output file path",
             type: "string"
         },
@@ -29,18 +29,23 @@ yargs
             describe: "Output source path",
             type: "string"
         },
+        "separator": {
+            aliases: ["S"],
+            describe: "Files separator",
+            type: "string"
+        },
         "source": {
             aliases: ["i", "input"],
             describe: "Source path",
             type: "string"
         },
         "start": {
-            alias: "s",
+            aliases: ["s"],
             describe: "Pipe at launch",
             type: "boolean"
         },
         "watch": {
-            alias: "w",
+            aliases: ["w"],
             describe: "Watch files",
             type: "boolean"
         }
