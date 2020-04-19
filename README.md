@@ -9,7 +9,7 @@ Supports job queue and configuration
 # CLI options
 
 Distributor module comes with a complete highly configurable CLI.
-Options avaiable in latest (1.3.0) version of the module are:
+Options avaiable in latest (1.3.1) version of the module are:
 
 ````
 cli.js
@@ -22,7 +22,7 @@ Input options:
 
 Output options:
   --module-type  Module type to wrap into
-   [string] [choices: "AMD", "CommonJS", "none", "UMD", "web"] [default: "none"]
+                     [string] [choices: "AMD", "CommonJS", "none", "UMD", "web"]
   --module-name  Module name                                            [string]
   --name         Output file path                                       [string]
   --output       Output source path                                     [string]
