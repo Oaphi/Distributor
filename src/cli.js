@@ -18,25 +18,45 @@ yargs
             default: "auto",
             describe: "Use external config",
             type: "string"
-        }, 
+        },
         "exclude": {
             aliases: ["E"],
             describe: "File paths to exclude",
+            group: "Input options: ",
             type: "array"
+        },
+        "module-type": {
+            aliases: ["M"],
+            choices: ["AMD", "CommonJS", "none", "UMD", "web"],
+            default: "none",
+            describe: "Module type to wrap into",
+            group: "Output options: ",
+            requiresArg: true,
+            type: "string"
+        },
+        "module-name": {
+            aliases: ["N"],
+            describe: "Module name",
+            group: "Output options: ",
+            requiresArg: true,
+            type: "string"
         },
         "name": {
             aliases: ["n"],
             describe: "Output file path",
+            group: "Output options: ",
             type: "string"
         },
         "order": {
             aliases: ["O"],
             describe: "Source files order",
+            group: "Input options: ",
             type: "array"
         },
         "output": {
             aliases: ["o", "out"],
             describe: "Output source path",
+            group: "Output options: ",
             type: "string"
         },
         "separator": {
@@ -61,6 +81,7 @@ yargs
         }
     })
     .command("$0", "Pipes files into distribution")
+    .implies("module-name","module-type")
     .middleware(async (args) => {
 
         const { config: pathToConfig } = args;
@@ -84,11 +105,19 @@ yargs
         !output && (args.output = 'dist');
         !source && (args.source = 'src');
         !name && (args.name = 'dist.js');
-    })    
+    })
     .middleware((args) => {
         const { name, output } = args;
         const outputPath = pt.resolve(output, name);
         args.output = outputPath;
+    })
+    .middleware((args) => {
+        const { moduleType, moduleName } = args;
+
+        args.moduleConfig = {
+            moduleName,
+            moduleType
+        };
     })
     .help();
 

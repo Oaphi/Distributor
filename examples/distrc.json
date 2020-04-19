@@ -2,6 +2,8 @@
     "ignore": [
         "(trees|bitwise|promises|sorting)"
     ],
+    "module-name": "MyAwesomeModule",
+    "module-type": "web",
     "name": "dist.js",
     "output": "dist",
     "order": [

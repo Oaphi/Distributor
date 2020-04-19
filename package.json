@@ -6,7 +6,10 @@
   "scripts": {
     "lint": "eslint --fix src/**",
     "test": "mocha",
-    "test-myself": "distribute"
+    "test-dirty": "npm run test -- --dirty",
+    "test-myself": "distribute",
+    "version": "npm run updateDocs && git add README.md",
+    "updateDocs": "node util/updateDocs.js"
   },
   "keywords": [
     "dist",

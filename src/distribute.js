@@ -197,6 +197,117 @@ const iterateEntries = async (path, entriesToCheck, order, ignore = []) => {
 };
 
 /**
+ * @summary opens module wrapper
+ * @param {string} output
+ * @param {number} [start]
+ * @param {string} [type] 
+ * @param {string} [name]
+ * @returns {number}
+ */
+const openModule = (output, start = 0, type = 'none', name = '') => {
+    if (type === 'none') {
+        return start;
+    }
+
+    let moduleOpener = '';
+
+    if (type === 'web') {
+
+        moduleOpener += `(function ${name}(context) {
+        
+            context["${name}"] = this;
+            
+        `;
+    }
+
+    if (moduleOpener) {
+        const writeStream = fs.createWriteStream(output, { flags: "r+", start });
+        writeStream.write(`${moduleOpener}\n`);
+        return start + Buffer.byteLength(moduleOpener) + 1;
+    }
+
+    return start;
+};
+
+/**
+ * @summary closes module wrapper
+ * @param {string} output
+ * @param {number} [start]
+ * @param {string} [type] 
+ * @param {string} [name]
+ * @returns {number}
+ */
+const closeModule = (output, start = 0, type = 'none', name = '') => {
+    if (type === 'none') {
+        return;
+    }
+
+    let moduleCloser = '';
+
+    if (type === 'web') {
+
+        moduleCloser += `})( typeof window !== "undefined" ? window : this );`;
+
+    }
+
+    if (moduleCloser) {
+        const writeStream = fs.createWriteStream(output, { flags: "r+", start });
+        writeStream.write(`${moduleCloser}\n`);
+        return start + Buffer.byteLength(moduleCloser) + 1;
+    }
+
+    return start;
+};
+
+/**
+ * @summary curry in processing options
+ * @param {string} output
+ * @param {string[]} exclude 
+ */
+const pipeEntry = (output, exclude) =>
+
+    /**
+     * @summary curry in separator info
+     * @param {string} separator
+     * @param {number} separatorBytes
+     */
+    (separator, separatorBytes) =>
+
+        /**
+         * @summary pipes entry in output
+         * @param {number} start
+         * @param {fs.Dirent} entry extended with "path"
+         * @returns {number}
+         */
+        (start, entry) => {
+
+            const { name } = entry;
+
+            const shouldNotRead = exclude.some(test => new RegExp(test).test(name));
+
+            const fullPath = pt.resolve(entry.path, name);
+
+            if (entry.isFile() && !shouldNotRead) {
+                const { size } = fs.statSync(fullPath);
+
+                const reader = fs.createReadStream(fullPath);
+
+                const dist = fs.createWriteStream(output, { flags: "r+", start });
+
+                reader.pipe(dist, { end: false });
+
+                reader
+                    .on('end', () => {
+                        dist.end(`\n${separator}`);
+                    });
+
+                start += (size + separatorBytes);
+            }
+
+            return start;
+        };
+
+/**
  * @summary Pipes source files into dist
  * @param {string} path 
  * @param {object} argv 
@@ -207,13 +318,16 @@ const readAndPipe = (path, argv, startFrom = 0) => {
     return asyncReaddir(path, { withFileTypes: true })
         .then(async topLevelEntries => {
 
-            const { 
-                exclude = [], 
-                ignore, 
+            const {
+                exclude = [],
+                ignore,
                 order = [],
-                output, 
-                separator = '\n' 
+                moduleConfig,
+                output,
+                separator = '\n'
             } = argv;
+
+            const { moduleType, moduleName } = moduleConfig;
 
             const { size: distSize } = fs.statSync(output);
 
@@ -221,33 +335,17 @@ const readAndPipe = (path, argv, startFrom = 0) => {
 
             const separatorByteAdd = Buffer.byteLength(separator) + 1;
 
-            _.forEach(entries, entry => {
-                const { name } = entry;
+            startFrom = openModule(output, startFrom, moduleType, moduleName);
 
-                const shouldNotRead = exclude.some(test => new RegExp(test).test(name));
+            const preparedProcessing = pipeEntry(output, exclude)(separator, separatorByteAdd);
 
-                const fullPath = pt.resolve(entry.path, name);
-
-                if (entry.isFile() && !shouldNotRead) {
-                    const { size } = fs.statSync(fullPath);
-
-                    const reader = fs.createReadStream(fullPath);
-
-                    const dist = fs.createWriteStream(output, { flags: "r+", start: startFrom });
-
-                    reader.pipe(dist, { end: false });
-
-                    reader
-                        .on('end', () => {
-                            dist.end(`\n${separator}`);
-                        });
-
-                    startFrom += (size + separatorByteAdd);
-                }
-
-            });
+            for (const entry of entries) {
+                startFrom = preparedProcessing(startFrom, entry);
+            }
 
             (startFrom < distSize) && asyncTrunc(output, startFrom);
+
+            startFrom = closeModule(output, startFrom, moduleType, moduleName);
 
             return startFrom;
         })
