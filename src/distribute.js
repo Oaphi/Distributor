@@ -215,7 +215,7 @@ const openModule = (output, start = 0, type = 'none', name = '') => {
 
         moduleOpener += `(function ${name}(context) {
         
-            context["${name}"] = this;
+            context["${name}"] = ${name};
             
         `;
     }
