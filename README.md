@@ -9,7 +9,7 @@ Supports job queue and configuration
 # CLI options
 
 Distributor module comes with a complete highly configurable CLI.
-Options avaiable in latest (1.2.3) version of the module are:
+Options avaiable in latest (1.3.0) version of the module are:
 
 ````
 cli.js

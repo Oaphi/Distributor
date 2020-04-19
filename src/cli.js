@@ -28,7 +28,6 @@ yargs
         "module-type": {
             aliases: ["M"],
             choices: ["AMD", "CommonJS", "none", "UMD", "web"],
-            default: "none",
             describe: "Module type to wrap into",
             group: "Output options: ",
             requiresArg: true,
@@ -99,11 +98,12 @@ yargs
         );
     })
     .middleware((args) => {
-        const { exclude, name, order, output, source } = args;
+        const { exclude, moduleType, name, order, output, source } = args;
         !exclude && (args.exclude = []);
         !order && (args.order = []);
         !output && (args.output = 'dist');
         !source && (args.source = 'src');
+        !moduleType && (args.moduleType = 'none');
         !name && (args.name = 'dist.js');
     })
     .middleware((args) => {
