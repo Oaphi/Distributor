@@ -6,3 +6,8 @@
 report*.json
 
 /util
+
+/test/tsconfig.json
+/test/test_ts_config
+
+/.vscode
