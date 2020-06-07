@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-//core modules
-const pt = require("path");
-
 //libraries
 const _ = require("lodash");
 const yargs = require("yargs");
@@ -80,13 +77,13 @@ yargs
         }
     })
     .command("$0", "Pipes files into distribution")
-    .implies("module-name","module-type")
+    .implies("module-name", "module-type")
     .middleware(async (args) => {
 
         const { config: pathToConfig } = args;
 
-        const external = pathToConfig === "auto"
-            ? (await findConfig())
+        const external = pathToConfig === "auto" ?
+            (await findConfig())
             : parseFile(pathToConfig);
 
         _.forIn(
@@ -96,28 +93,6 @@ yargs
                 willOverride || (args[key] = val);
             }
         );
-    })
-    .middleware((args) => {
-        const { exclude, moduleType, name, order, output, source } = args;
-        !exclude && (args.exclude = []);
-        !order && (args.order = []);
-        !output && (args.output = 'dist');
-        !source && (args.source = 'src');
-        !moduleType && (args.moduleType = 'none');
-        !name && (args.name = 'dist.js');
-    })
-    .middleware((args) => {
-        const { name, output } = args;
-        const outputPath = pt.resolve(output, name);
-        args.output = outputPath;
-    })
-    .middleware((args) => {
-        const { moduleType, moduleName } = args;
-
-        args.moduleConfig = {
-            moduleName,
-            moduleType
-        };
     })
     .help();
 
