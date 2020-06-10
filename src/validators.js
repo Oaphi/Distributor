@@ -1,6 +1,6 @@
 const { resolve } = require("path");
 
-const { findTsConfig } = require("./typescript.js");
+const { findTsConfig, tsInstall } = require("./typescript.js");
 
 /**
  * @typedef {({
@@ -14,6 +14,7 @@ const { findTsConfig } = require("./typescript.js");
  *  moduleConfig : (ModuleConfig | {}),
  *  name : (string | "dist.js"),
  *  tsConfig : string,
+ *  tsInstalled : boolean,
  *  order : (string[] | []),
  *  output : string,
  *  separator : (string | "\n"),
@@ -47,6 +48,8 @@ const validateArgv = (argv = {}) => {
         watch = false
     } = argv;
 
+    const tsInstalled = tsInstall({ env: "dev" });
+
     return {
         exclude,
         ignore,
@@ -58,6 +61,7 @@ const validateArgv = (argv = {}) => {
         source,
         start,
         tsConfig,
+        tsInstalled,
         watch
     };
 };

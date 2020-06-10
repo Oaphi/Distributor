@@ -1,4 +1,6 @@
-const { appendFileSync, existsSync, readFileSync, mkdirSync } = require("fs");
+const { appendFileSync, existsSync, readFileSync, mkdirSync, unlinkSync } = require("fs");
+const pt = require('path');
+
 
 const { expect } = require("chai");
 
@@ -9,6 +11,8 @@ const { findTsConfig } = require("../src/typescript.js");
 const { run } = require("../src/distribute.js");
 
 describe('findTsConfig', function () {
+
+    this.timeout(3e3);
 
     it('should return null if not found', function () {
         const config = findTsConfig({ pathToStart: "./src" });
@@ -26,15 +30,15 @@ describe('findTsConfig', function () {
     describe('Options', function () {
 
         it('closestToStart: should return last found if set to false', function () {
-            
-            const config = findTsConfig({ pathOnly: true, closestToStart : false });
+
+            const config = findTsConfig({ pathOnly: true, closestToStart: false });
 
             expect(config).to.match(/node_modules/);
         });
-        
+
         it('pathOnly: should return string only if set', function () {
 
-            const config = findTsConfig({ pathOnly : true });
+            const config = findTsConfig({ pathOnly: true });
 
             expect(config).to.be.a("string");
         });
@@ -44,24 +48,34 @@ describe('findTsConfig', function () {
 
 describe("Typescript parsing", function () {
 
-    const testOutputFolder = `${__dirname}/test_ts_config`;
-    const tsTestFilePath = `${testOutputFolder}/test_typescript.ts`;
+    const testOutputFolder = pt.join(__dirname, "test_ts_config");
+    const tsTestFilePath = pt.join(testOutputFolder, "test_typescript.ts");
+    const jsTestFilePath = `${tsTestFilePath.slice(0, -2)}js`;
 
     it('should correctly perform workflow', async function () {
 
         //should run on typescript only, compile ts -> js, output here
         const config = {
-            ignore: "*.js",
-            name: "test_typescript.js",
+            ignore: ["*.js"],
+            name: jsTestFilePath,
             output: testOutputFolder,
             start: true,
             source: __dirname
         };
 
-        const tsTestOutFilePath = `${testOutputFolder}/${config.name}`;
-
         //is not valid JS
-        const data = `declare var Numbers : number[];\n`;
+        const data = `declare var Numbers : number[];
+
+        const header = "Requires should go before this line";
+        
+        const { readdir } = require("fs");
+
+        class Test {
+            test : string;
+            constructor() {
+                this.test = "we did it!";
+            }
+        }`;
 
         //create test folder
         !existsSync(testOutputFolder) && mkdirSync(testOutputFolder);
@@ -70,16 +84,15 @@ describe("Typescript parsing", function () {
         appendFileSync(tsTestFilePath, data, { encoding: "utf8" });
 
         await run(Promise.resolve(config));
+        
+        expect(existsSync(jsTestFilePath)).to.be.true;
 
-        expect(existsSync(tsTestOutFilePath)).to.be.true;
-
-        const testContent = readFileSync(tsTestOutFilePath, { encoding: "utf8" });
+        const testContent = readFileSync(jsTestFilePath, { encoding: "utf8" });
 
         expect(testContent.includes(data)).to.be.false;
-
-        //clean up
-        process.once('beforeExit', () => removeDirRecursive(testOutputFolder, [], true));
-
     });
+
+    //clean up
+    process.once('beforeExit', () => removeDirRecursive(testOutputFolder, [], true));
 
 });
