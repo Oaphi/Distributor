@@ -7,7 +7,11 @@ const { readdirSync } = fs;
 
 const { spawnSync } = require("child_process");
 
+const { randomBytes } = require("crypto");
+
 const { readdir } = require("fs").promises;
+
+const { tmpdir } = require("os");
 
 /**
  * @summary clears array
@@ -35,6 +39,50 @@ const copyWithGetters = (target, ...sources) => {
     }
 
     return target;
+};
+
+/**
+ * @summary creates or updates JSON file
+ * @param {string} path 
+ * @returns {boolean}
+ */
+const createOrUpdateJSONfile = (path, updates = {}) => {
+
+    try {
+        const json = fs.readFileSync(path, { encoding: "utf-8" });
+
+        const parsed = JSON.parse(json);
+
+        Object
+            .entries(updates)
+            .forEach(([key, value]) => {
+                parsed[key] = value;
+            });
+
+        fs.writeFileSync(path, JSON.stringify(parsed));
+    }
+    catch (error) {
+        const { code } = error;
+        if (code === "ENOENT") {
+            fs.appendFileSync(path, "{}");
+            return createOrUpdateJSONfile(path, updates);
+        }
+        return false;
+    }
+
+    return true;
+};
+
+/**
+ * @summary gets a random hex string (128 bit, for UID)
+ * @returns {Promise<string>}
+ */
+const getQuasiUniqueHexString = () => {
+    return new Promise((resolve) => {
+        randomBytes(16, (err, buff) => {
+            resolve(buff.toString("hex"));
+        });
+    });
 };
 
 /**
@@ -253,7 +301,7 @@ const recursiveDirLookupSync = ({
     try {
 
         const entries = processEntrySync([], config);
-        
+
         return typeof onSuccess === "function" ?
             onSuccess(entries, root) :
             entries;
@@ -392,7 +440,7 @@ const processEntrySync = (entries, config) => {
                 continue;
             }
 
-            const status = entryCallback(entryPath, name); 
+            const status = entryCallback(entryPath, name);
 
             if (status) {
                 entries.push(entryPath);
@@ -484,15 +532,18 @@ const findAndRead = (root, test) => {
 module.exports = {
     clear,
     copyWithGetters,
+    createOrUpdateJSONfile,
     dirR,
     findAndRead,
     getAppEntryPoint,
     getRootFromNodeModules,
     getProjectRoot,
+    getQuasiUniqueHexString,
     installIfNotFound,
     isNotExistent,
     isNotPermitted,
     log,
+    tmpdir,
     parseFile,
     percentify,
     pushIfNew,
