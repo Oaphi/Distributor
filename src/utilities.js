@@ -74,6 +74,19 @@ const createOrUpdateJSONfile = (path, updates = {}) => {
 };
 
 /**
+ * @summary promise-based forEach preserving value and execution order
+ * @param {any[]} source 
+ * @param {function(any,number, any[]) : Promise<void>} asyncCallback
+ * @returns {Promise<void>}
+ */
+const forAwait = async (source, asyncCallback) => {
+    let i = 0;
+    for (const val of source) {
+        await asyncCallback(val, i++, source);
+    }
+};
+
+/**
  * @summary gets a random hex string (128 bit, for UID)
  * @returns {Promise<string>}
  */
@@ -535,6 +548,7 @@ module.exports = {
     createOrUpdateJSONfile,
     dirR,
     findAndRead,
+    forAwait,
     getAppEntryPoint,
     getRootFromNodeModules,
     getProjectRoot,
