@@ -1,4 +1,4 @@
-const { appendFileSync, existsSync, readFileSync, mkdirSync, unlinkSync } = require("fs");
+const { appendFileSync, existsSync, readFileSync, mkdirSync } = require("fs");
 const pt = require('path');
 
 
@@ -84,7 +84,7 @@ describe("Typescript parsing", function () {
         appendFileSync(tsTestFilePath, data, { encoding: "utf8" });
 
         await run(Promise.resolve(config));
-        
+
         expect(existsSync(jsTestFilePath)).to.be.true;
 
         const testContent = readFileSync(jsTestFilePath, { encoding: "utf8" });
