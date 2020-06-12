@@ -3,16 +3,42 @@ const fs = require("fs");
 const pt = require("path");
 const { promisify } = require("util");
 
-const _ = require("lodash");
-const { yellow } = require("chalk");
+const {
+    readFile: asyncReadfile,
+    appendFile: asyncCreate,
+    readdir: asyncReaddir,
+    truncate: asyncTrunc
+} = fs.promises;
+
+const { pipeline } = require("stream");
 
 const asyncExists = promisify(fs.exists);
-const asyncCreate = promisify(fs.appendFile);
-const asyncTrunc = promisify(fs.truncate);
-const asyncReaddir = promisify(fs.readdir);
+const asyncPipeline = promisify(pipeline);
 
-const { log, parseFile, percentify } = require("./utilities.js");
+const { yellow } = require("chalk");
+
+const {
+    readableFromString,
+    ModuleExtractor,
+    Prepender
+} = require("./streams.js");
+
+const { validateArgv } = require("./validators.js");
+
+const {
+    dirR,
+    forAwait,
+    log,
+    parseFile,
+    percentify,
+    recursiveDirLookupSync
+} = require("./utilities.js");
+
 const { makeJobQueue } = require("./queue.js");
+
+/**
+ * @typedef {import("./validators.js").DistributorArgs} DistributorArgs
+ */
 
 /**
  * @summary Event log colouring map
@@ -21,66 +47,24 @@ const { makeJobQueue } = require("./queue.js");
 const colorMap = new Map().set("change", yellow);
 
 /**
- * @summary Directory iterator
- * @param {String} path 
- * @param {Function} callback 
- * @param {Function} [errorHandler]
- * @returns {Promise}
- * @async
- */
-const dirR = async (path, callback, errorHandler = err => console.error(err)) => {
-
-    /**
-     * 
-     * @param {fs.Dirent} entry 
-     * @returns {Promise<any[]>}
-     */
-    const processEntry = async (entry) => {
-        const { name } = entry;
-
-        const entryPath = pt.join(path, name);
-
-        try {
-            if (entry.isSymbolicLink()) {
-                return null; //ignore symlinks to avoid loops
-            }
-
-            if (entry.isDirectory()) {
-                return dirR(entryPath, callback);
-            }
-
-            const status = callback(entryPath, name);
-
-            if (status) {
-                return entryPath;
-            }
-
-        }
-        catch (statErr) {
-            return errorHandler(statErr);
-        }
-    };
-
-    try {
-        const files = await asyncReaddir(path, { withFileTypes: true });
-        const result = await Promise.all(files.map(processEntry));
-
-        return result.filter(e => e).flat();
-    }
-    catch (err) {
-        return errorHandler(err);
-    }
-};
-
-/**
  * @summary Searches path starting from CWD for config
  * @returns {Promise<?object>}
- * @async
  */
 const findConfig = async () => {
     log("Searching for config file...");
 
     const configRegExp = /^\.*distrc\.*js\w*$/;
+
+    recursiveDirLookupSync({
+        onSuccess: (paths) => {
+            console.log({ paths });
+        },
+        entryCallback: (path, fname) => /^\.*distrc\.*js\w*$/.test(fname),
+        errorHandler: (error) => {
+            console.warn(error);
+            return null;
+        }
+    });
 
     try {
         const config = await dirR(
@@ -130,43 +114,23 @@ const findConfig = async () => {
  * @summary Entry iterator
  * @param {string} path
  * @param {fs.Dirent[]} entriesToCheck
- * @param {String[]} order
- * @param {string[]} [ignore]
- * @returns {fs.Dirent[]}
- * @async
+ * @param {DistributorArgs} [config]
+ * @returns {Promise<fs.Dirent[]>}
  */
-const iterateEntries = async (path, entriesToCheck, order, ignore = []) => {
+const iterateEntries = async (path, entriesToCheck, config = {}) => {
+    const { ignore, order } = config;
 
     const noIgnore = ignore.length === 0;
 
     const entries = [];
 
-    /**
-     * @summary Pushes entry to entries list or recurses
-     * @param {fs.Dirent} entry 
-     * @returns {Promise<void>}
-     */
-    const directoryFork = async (entry) => {
-        if (entry.isDirectory()) {
-            const dirPath = pt.join(path, entry.name);
-
-            const subEntries = fs.readdirSync(dirPath, { withFileTypes: true });
-
-            entries.push(...(await iterateEntries(dirPath, subEntries, order, ignore)));
-            return;
-        }
-
-        entries.push(entry);
-    };
-
     for (const entry of entriesToCheck) {
-
         entry.path = path;
 
         try {
 
             if (noIgnore) {
-                await directoryFork(entry);
+                await directoryFork(path, entries, entry, config);
                 continue;
             }
 
@@ -180,7 +144,7 @@ const iterateEntries = async (path, entriesToCheck, order, ignore = []) => {
             );
 
         } catch (error) {
-            await directoryFork(entry);
+            await directoryFork(path, entries, entry, config);
         }
     }
 
@@ -197,14 +161,41 @@ const iterateEntries = async (path, entriesToCheck, order, ignore = []) => {
 };
 
 /**
+ * @summary Pushes entry to entries list or recurses
+ * @param {string} path
+ * @param {fs.Dirent[]} entries 
+ * @param {fs.Dirent} entry 
+ * @param {DistributorArgs} config
+ * @returns {Promise<fs.Dirent[]>}
+ */
+const directoryFork = async (path, entries, entry, config) => {
+
+    if (entry.isDirectory()) {
+
+        const { name } = entry;
+
+        const dirPath = pt.join(path, name);
+
+        const subEntries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+        entries.push(...(await iterateEntries(dirPath, subEntries, config)));
+        return;
+    }
+
+    entries.push(entry);
+
+    return entries;
+};
+
+/**
  * @summary opens module wrapper
  * @param {string} output
+ * @param {ModuleConfig} moduleConfig
  * @param {number} [start]
- * @param {string} [type] 
- * @param {string} [name]
  * @returns {number}
  */
-const openModule = (output, start = 0, type = 'none', name = '') => {
+const openModule = (output, { moduleName: name, moduleType: type }, start = 0) => {
+
     if (type === 'none') {
         return start;
     }
@@ -232,12 +223,12 @@ const openModule = (output, start = 0, type = 'none', name = '') => {
 /**
  * @summary closes module wrapper
  * @param {string} output
+ * @param {ModuleConfig} moduleConfig
  * @param {number} [start]
- * @param {string} [type] 
- * @param {string} [name]
  * @returns {number}
  */
-const closeModule = (output, start = 0, type = 'none', name = '') => {
+const closeModule = (output, { moduleType: type }, start = 0) => {
+
     if (type === 'none') {
         return;
     }
@@ -260,163 +251,246 @@ const closeModule = (output, start = 0, type = 'none', name = '') => {
 };
 
 /**
- * @summary curry in processing options
- * @param {string} output
- * @param {string[]} exclude 
+ * @summary pipes stream through extractor and appends separator
+ * @param {State} state
+ * @param {string} separator 
  */
-const pipeEntry = (output, exclude) =>
+const pipeAndAddSeparator = (state, separator) =>
 
     /**
-     * @summary curry in separator info
-     * @param {string} separator
-     * @param {number} separatorBytes
+     * @param {NodeJS.ReadableStream} input
+     * @param {NodeJS.WritableStream} output
+     * @returns {Promise<number>}
      */
-    (separator, separatorBytes) =>
+    async (input, output, start) => {
+        const { extractor } = state;
 
-        /**
-         * @summary pipes entry in output
-         * @param {number} start
-         * @param {fs.Dirent} entry extended with "path"
-         * @returns {number}
-         */
-        (start, entry) => {
+        start = start > 0 ? start - 2 : 0;
 
-            const { name } = entry;
+        const outputStream = fs.createWriteStream(output, { flags: "r+", start });
 
-            const shouldNotRead = exclude.some(test => new RegExp(test).test(name));
+        await asyncPipeline(
+            input,
+            extractor,
+            outputStream
+        );
 
-            const fullPath = pt.resolve(entry.path, name);
+        const { currentSize } = extractor;
+        extractor.resetCurrentSize();
+        return currentSize + Buffer.byteLength(separator) + 1;
+    };
 
-            if (entry.isFile() && !shouldNotRead) {
-                const { size } = fs.statSync(fullPath);
+/**
+ * @summary pipes entry in output
+ * @param {State} state
+ * @param {DistributorArgs} [config]
+ */
+const pipeEntry = (state, {
+    output,
+    exclude,
+    separator,
+    tsConfig,
+    tsInstalled
+} = {}) =>
 
-                const reader = fs.createReadStream(fullPath);
+    /**
+     * @param {number} start
+     * @param {import("fs").Dirent} entry extended with "path"
+     * @returns {Promise<number>}
+     */
+    async (start, entry) => {
+        const { name } = entry;
 
-                const dist = fs.createWriteStream(output, { flags: "r+", start });
-
-                reader.pipe(dist, { end: false });
-
-                reader
-                    .on('end', () => {
-                        dist.end(`\n${separator}`);
-                    });
-
-                start += (size + separatorBytes);
-            }
-
-            return start;
+        const PipedFile = {
+            name,
+            excluded: exclude.some(test => new RegExp(test).test(name)),
+            isJS: /.+\.js(?:on)?$/.test(name),
+            isTS: /.+\.tsx?$/.test(name)
         };
+
+        const fullPath = pt.resolve(entry.path, name);
+
+        if (!entry.isFile() || PipedFile.excluded) {
+            return Promise.resolve(0);
+        }
+
+        //TODO: write branching for different file types
+        log(`Piping entry ${name}`);
+
+        const commonPipeAndSeparate = pipeAndAddSeparator(state, separator);
+
+        //if we have a js or json file -> pipe to output with no change
+        if (PipedFile.isJS) {
+            const inputStream = fs.createReadStream(fullPath);
+            return commonPipeAndSeparate(inputStream, output, start);
+        }
+
+        //if we have TypeScript -> pass through tsc and pipe
+        if (PipedFile.isTS && tsInstalled) {
+
+            const tsc = require("typescript");
+
+            const { compilerOptions } = require(tsConfig);
+
+            const content = await asyncReadfile(fullPath, { encoding: "utf-8" });
+
+            const { outputText } = tsc.transpileModule(
+                content, { compilerOptions }
+            );
+
+            const inputStream = readableFromString(`${outputText}\n${separator}`);
+            return commonPipeAndSeparate(inputStream, output, start);
+        }
+    };
+
+
 
 /**
  * @summary Pipes source files into dist
+ * @param {State} state
  * @param {string} path 
- * @param {object} argv 
+ * @param {DistributorArgs} argv
  * @param {number} [startFrom]
  * @returns {Promise<number>}
  */
-const readAndPipe = (path, argv, startFrom = 0) => {
-    return asyncReaddir(path, { withFileTypes: true })
-        .then(async topLevelEntries => {
+const readAndPipe = async ({
+    state,
+    path
+}, argv) => {
+    try {
 
-            const {
-                exclude = [],
-                ignore,
-                order = [],
-                moduleConfig,
-                output,
-                separator = '\n'
-            } = argv;
+        const topLevelEntries = await asyncReaddir(path, { withFileTypes: true });
 
-            const { moduleType, moduleName } = moduleConfig;
+        const { moduleConfig, output } = argv;
 
-            const { size: distSize } = fs.statSync(output);
+        const { size: distSize } = fs.statSync(output);
 
-            const entries = await iterateEntries(path, topLevelEntries, order, ignore);
+        const entries = await iterateEntries(path, topLevelEntries, argv);
 
-            const separatorByteAdd = Buffer.byteLength(separator) + 1;
+        let startFrom = openModule(output, moduleConfig, 0);
 
-            startFrom = openModule(output, startFrom, moduleType, moduleName);
+        const preparedProcessing = pipeEntry(state, argv);
 
-            const preparedProcessing = pipeEntry(output, exclude)(separator, separatorByteAdd);
+        await forAwait(entries, async (entry) => {
+            startFrom += await preparedProcessing(startFrom, entry);
+        });
 
-            for (const entry of entries) {
-                startFrom = preparedProcessing(startFrom, entry);
-            }
+        (startFrom < distSize) && asyncTrunc(output, startFrom);
 
-            (startFrom < distSize) && asyncTrunc(output, startFrom);
+        startFrom = closeModule(output, moduleConfig, startFrom);
 
-            startFrom = closeModule(output, startFrom, moduleType, moduleName);
-
-            return startFrom;
-        })
-        .catch(log);
+        return startFrom;
+    }
+    catch (msg) {
+        return log(msg);
+    }
 };
 
 /**
+ * @typedef {object} State
+ * @property {ModuleExtractor} extractor
+ */
+
+/**
  * @summary pipes source files to dist
- * @param {object} argv
+ * @param {DistributorArgs} argv
  * @returns {Promise<void>}
  */
-const exportToDist = (argv) => {
+const exportToDist = async (argv) => {
+
     log("Started preparing output");
 
     const { output, source } = argv;
 
-    return asyncExists(output)
-        .then(status => {
+    /** @type {State} */
+    const state = {
+        extractor: new ModuleExtractor()
+    };
 
-            if (!status) {
-                const parsed = pt.parse(output);
+    //workaround for restarting stream
+    state.extractor.on("end", () => {
+        const newExtractor = new ModuleExtractor();
+        newExtractor.inherit(state.extractor);
+        state.extractor = newExtractor;
+    });
 
-                const { dir } = parsed;
+    try {
+        const status = await asyncExists(output);
 
-                log("Missing output folder, creating");
-                fs.mkdirSync(dir, { recursive: true });
-            }
+        if (!status) {
+            const parsed = pt.parse(output);
 
-            return asyncCreate(output, "");
-        })
-        .catch(log)
-        .then(() => {
-            log("Finished preparing output");
-            return readAndPipe(source, argv);
-        })
-        .catch(log)
-        .finally(() => {
-            log("Finished piping into output");
-        });;
+            const { dir } = parsed;
+
+            log("Missing output folder, creating");
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        await asyncCreate(output, "");
+    }
+    catch (error) {
+        log(error);
+    }
+
+    log("Finished preparing output");
+
+    try {
+        await readAndPipe({ state, path: source }, argv);
+
+        const { extractor } = state;
+        const { parsedImports } = extractor;
+
+        const prepender = new Prepender({
+            prepend: parsedImports,
+            recursive: true,
+            outName: output,
+            srcName: output
+        });
+
+        await prepender.start();
+
+    }
+    catch (error) {
+        log(error);
+    }
+
+    log(`Finished exporting:\n${output}`);
 };
-
 
 /**
  * @summary entry point
- * @param {Promise<object>} argv 
+ * @param {Promise<DistributorArgs>} argv
  * @returns {Promise<void>}
  */
 const run = async (argv) => {
 
-    const preparedArgv = await argv;
+    const preparedArgv = validateArgv(await argv);
 
-    const { source, start, watch } = preparedArgv;
+    return new Promise((resolve) => {
 
-    const mainJob = () => exportToDist(preparedArgv).catch(log);
+        const { source, start, watch } = preparedArgv;
 
-    const JOBS = makeJobQueue();
+        const mainJob = () => exportToDist(preparedArgv).catch(log);
 
-    JOBS.onFinished(() => {
-        log(`${percentify(JOBS.percentage)} done`);
-    });
+        const JOBS = makeJobQueue();
 
-    JOBS.runOnNewJob().enqueue(mainJob);
+        JOBS.onFinished(() => {
+            log(`${percentify(JOBS.percentage)} done`);
+            resolve();
+        });
 
-    start && JOBS.nextJob();
+        JOBS.runOnNewJob().enqueue(mainJob);
 
-    watch && fs.watch(source, (event, fname) => {
-        const colour = colorMap.get(event);
+        start && JOBS.nextJob();
 
-        log(colour(`Source file ${fname} ${event}d`));
+        watch && fs.watch(source, (event, fname) => {
+            const colour = colorMap.get(event);
 
-        JOBS.enqueue(mainJob);
+            log(colour(`Source file ${fname} ${event}d`));
+
+            JOBS.enqueue(mainJob);
+        });
+
     });
 
 };
