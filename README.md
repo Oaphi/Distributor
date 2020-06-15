@@ -3,13 +3,18 @@
 # Distributor
 Streams source files into single merged. 
 
-Supports job queue and configuration
+Supports job queue and configuration.
 
+Can compile TypeScript files 
+
+# Dependencies
+
+As of version 1.4.0, the package will merge identical requires of CommonJS modules and move them to the top of the dist file. Currently, only single-line `require`s are supported, but there are no restrictions of assignment type (`var`, `let`, `const`), object destructuring and partial imports.
 
 # CLI options
 
 Distributor module comes with a complete highly configurable CLI.
-Options avaiable in latest (1.3.2) version of the module are:
+Options avaiable in latest (1.4.0) version of the module are:
 
 ````
 cli.js
