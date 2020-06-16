@@ -1,11 +1,13 @@
 ![Node.js CI](https://github.com/Oaphi/distributor/workflows/Node.js%20CI/badge.svg)
 
 # Distributor
-Streams source files into single merged. 
 
-Supports job queue and configuration.
+Distributor is a lightweight bundler that helps to build your project with minimal configuration required.
+The module is capable of:
 
-Can compile TypeScript files 
+- streaming source files into single merged while preserving relative order
+- enqueue bundler jobs and watch for source files change
+- compile TypeScript files and install TypeScript for the project
 
 # Dependencies
 
@@ -14,7 +16,7 @@ As of version 1.4.0, the package will merge identical requires of CommonJS modul
 # CLI options
 
 Distributor module comes with a complete highly configurable CLI.
-Options avaiable in latest (1.4.0) version of the module are:
+Options avaiable in latest (1.4.1) version of the module are:
 
 ````
 cli.js
