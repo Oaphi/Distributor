@@ -8,15 +8,12 @@ const {
     unlinkSync
 } = require("fs");
 
-const {
-    unlink
-} = require("fs").promises;
+const { unlink } = require("fs").promises;
 
-const {
-    Writable,
-    Readable,
-    pipeline
-} = require("stream");
+const { Writable, Readable, pipeline } = require("stream");
+
+const { promisify } = require("util");
+const asyncPipeline = promisify(pipeline);
 
 const OS = require("os");
 
@@ -31,7 +28,7 @@ const {
 
 describe('Prepender', function () {
 
-    it('should correctly prepend data', function () {
+    it('should correctly prepend data', async function () {
 
         try {
             const tmp = mkdtempSync(OS.tmpdir());
@@ -44,10 +41,10 @@ describe('Prepender', function () {
                 recursive: true,
                 outName: tmpOutFilePath,
                 prepend: "HEADER",
-                srcName: tmpFilePath
+                srcName: tmpFilePath,
             });
 
-            prepender.start();
+            await prepender.start();
 
             process.once("beforeExit", () => removeDirRecursive(tmp, [], true));
         } catch (error) {
@@ -59,74 +56,58 @@ describe('Prepender', function () {
 
 describe('Intergration Test', function () {
 
-    it('Should extract modules, hoist and pass through', function () {
+    it('Should extract modules, hoist and pass through', async function () {
 
-        const readable = new Readable({
-            read() { }
-        });
+        try {
 
-        const pass = new ModuleExtractor();
+            const readable = new Readable({ read() { } });
 
-        const testLines = [
-            "const simpleConst = require(\"testId\")",
-            "const { destConst } = require(\"other-id\")",
-            "const testConst = require(\"other-id\")",
-            "const { a, b, c12, gzip, $ } = require(\"https://example.com\")",
-            "some normal line without requires",
-            "let { highFive } = require(\"someModule\").patition",
-            "var { a : b, b : _c, d : e2 } = require(\"gotcha\")",
-            "2\n3\n4\n5",
-            null
-        ];
+            const pass = new ModuleExtractor();
 
-        const referenceLines = [
-            'const simpleConst = require("testId");',
-            'const { destConst, testConst } = require("other-id");',
-            'const { a, b, c12, gzip, $ } = require("https://example.com");',
-            'let { highFive } = require("someModule").patition;',
-            'var { a : b, b : _c, d : e2 } = require("gotcha");',
-            'some normal line without requires', '2', '3', '4', '5'
-        ];
+            const testLines = [
+                "const simpleConst = require(\"testId\")",
+                "const { destConst } = require(\"other-id\")",
+                "const testConst = require(\"other-id\")",
+                "const { a, b, c12, gzip, $ } = require(\"https://example.com\")",
+                "some normal line without requires",
+                "let { highFive } = require(\"someModule\").patition",
+                "var { a : b, b : _c, d : e2 } = require(\"gotcha\")",
+                "2\n3\n4\n5",
+                null
+            ];
 
-        testLines.forEach(line => readable.push(line));
+            testLines.forEach(line => readable.push(line));
 
-        const outTestName = "./src/TEST.txt";
+            const outTestName = "./src/TEST.txt";
 
-        const expector = new Writable({
-            write(chunk, encoding, callback) {
-                const stringified = chunk.toString();
+            process.once("beforeExit", () => unlink(outTestName));
 
-                const lines = stringified.split("\n");
+            const file = createWriteStream(outTestName);
 
-                const result = lines.filter(Boolean).every(line => referenceLines.includes(line));
+            await asyncPipeline(readable, pass, file);
 
-                expect(result).to.be.true;
-                callback(null, chunk);
-            }
-        });
+            const { parsedImports } = pass;
 
-        process.once("beforeExit", () => unlink(outTestName));
+            const prepender = new Prepender({
+                onSuccess: (event) => {
+                    const { outputName, sizeAdded, sourceName } = event;
+                    
+                    expect(outputName).to.equal(outTestName);
+                    expect(sourceName).to.equal(outTestName);
+                    expect(sizeAdded).to.equal(Buffer.byteLength( parsedImports ));
+                },
+                prepend: pass.parsedImports,
+                outName: outTestName,
+                srcName: outTestName,
+                recursive: true
+            });
 
-        const file = createWriteStream(outTestName);
+            await prepender.start();
+        }
+        catch (error) {
+            console.log(error);
+        }
 
-        pipeline(
-            readable,
-            pass,
-            file,
-            () => {
-                const readFile = createReadStream(outTestName);
-
-                const prepender = new Prepender({
-                    prepend: pass.parsedImports,
-                    outName: outTestName,
-                    srcName: outTestName,
-                });
-
-                readFile
-                    .pipe(prepender)
-                    .pipe(expector);
-            }
-        );
     });
 
 });

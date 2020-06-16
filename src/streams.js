@@ -17,6 +17,7 @@ const { getQuasiUniqueHexString, log } = require("./utilities.js");
 
 const OS = require("os");
 const pt = require('path');
+const { tsInstall } = require("./typescript.js");
 
 const BYTES = {
     NEWLINE: 10
@@ -96,25 +97,47 @@ class Tap extends Transform {
 
 }
 
+/**
+ * @typedef {function(PrependerSuccess) : void} SuccessHandler
+ */
+
+/**
+ * @typedef {Object} PrependerSuccess
+ * @property {string} outputName
+ * @property {string} sourceName
+ * @property {number} sizeAdded
+ * @event PrependerSuccess
+ */
+
+/**
+ * @class
+ */
 class Prepender extends Writable {
 
     /**
-     * @typedef {import("stream").TransformOptions} TransformOptions
-     * 
+     * @typedef {import("stream").WritableOptions} WritableOptions
+     *
      * @typedef {object} PrependerConfig
      * @property {string} outName
      * @property {string} prepend
      * @property {string} srcName
      * @property {boolean} recursive
+     * @property {SuccessHandler} onSuccess
      * 
-     * @param {TransformOptions & PrependerConfig} config
+     * @param {WritableOptions & PrependerConfig} config
      */
     constructor(config) {
         super(config);
 
         this.alreadyPrepended = false;
 
-        const { outName, prepend, recursive, srcName } = config;
+        const {
+            outName,
+            prepend,
+            recursive,
+            srcName,
+            onSuccess = e => void e
+        } = config;
 
         this.outName = outName;
         this.prepend = prepend;
@@ -137,6 +160,8 @@ class Prepender extends Writable {
             }
         })();
 
+        this.on("success", onSuccess);
+
         this.on("finish", async () => {
             const { outName, tmpName } = this;
 
@@ -146,7 +171,7 @@ class Prepender extends Writable {
                 await asyncPipeline(input, output);
                 await unlink(tmpName);
                 this.resolver();
-                
+
             }
             catch (error) {
                 log(`${error}\n${Errors.Prepender.PipeFailure}`);
@@ -162,21 +187,26 @@ class Prepender extends Writable {
      * @returns {Promise<Prepender>}
      */
     async start() {
-        const { recursive, srcName, temp } = this;
+
+        const { outName, prepend, recursive, srcName, temp } = this;
 
         if (recursive) {
-
-            await temp;
-
             try {
+                await temp;
                 const src = createReadStream(srcName);
                 await asyncPipeline(src, this);
+
+                this.emit("success", {
+                    outputName: outName,
+                    sourceName: srcName,
+                    sizeAdded: Buffer.byteLength(prepend)
+                });
+
                 await new Promise((resolve) => (this.resolver = resolve));
             }
             catch (error) {
                 log(error);
             }
-
         }
 
         return this;
