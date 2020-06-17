@@ -4,23 +4,65 @@ const fs = require('fs');
 const os = require('os');
 const pt = require('path');
 
-const { 
-    getQuasiUniqueHexString, 
-    removeDirRecursive 
+const { appendFile } = fs.promises;
+
+const {
+    getQuasiUniqueHexString,
+    removeDirRecursive
 } = require("../src/utilities.js");
 
 const { run } = require("../src/distribute.js");
 
 describe('run', function () {
+    const tmp = os.tmpdir();
 
     this.timeout(5e3);
 
-    it('Integration test: JS + TS', async function () {
-        const tmp = os.tmpdir();
-
+    it('should correctly work with several files', async function () {
         const folderName = await getQuasiUniqueHexString();
-
         const tmpName = pt.join(tmp, folderName);
+
+        fs.mkdirSync(tmpName);
+
+        const files = new Array(20).fill(1).map((p, i) => {
+            const tmpJSpath = pt.join(tmpName, `temp_file${i}.js`);
+            return appendFile(
+                tmpJSpath,
+                `const {test} = require("test${i}");` + "repeated line\n".repeat(200)
+            );
+        });
+
+        await Promise.all(files);
+
+        const separator = "=======================";
+
+        await run(Promise.resolve({
+            ignore: [
+                "dist*"
+            ],
+            source: tmpName,
+            output: tmpName,
+            separator,
+            start: true
+        }));
+
+        const content = fs.readFileSync(pt.join(tmpName, "dist.js"), { encoding: "utf-8" });
+        expect(content).to.include(`const { test } = require("test2");`);
+        expect(content).to.include(separator);
+
+        process.on("beforeExit", () => removeDirRecursive(tmpName, [], true));
+    });
+
+    it('should separate files correctly', function () {
+
+
+
+    });
+
+    it('Integration test: JS + TS', async function () {
+        const folderName = await getQuasiUniqueHexString();
+        const tmpName = pt.join(tmp, folderName);
+
         const tmpJSpath = pt.join(tmpName, "temp_file.js");
         const tmpTSpath = pt.join(tmpName, "temp_file.ts");
 
@@ -62,7 +104,7 @@ describe('run', function () {
         fs.appendFileSync(tmpJSpath, jsData);
         fs.appendFileSync(tmpTSpath, tsData);
 
-        process.on("beforeExit", () => removeDirRecursive(tmpName,[], true));
+        process.on("beforeExit", () => removeDirRecursive(tmpName, [], true));
 
         await run(Promise.resolve({
             exclude: ["dist.js"],

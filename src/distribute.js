@@ -10,17 +10,15 @@ const {
     truncate: asyncTrunc
 } = fs.promises;
 
-const { pipeline } = require("stream");
-
 const asyncExists = promisify(fs.exists);
-const asyncPipeline = promisify(pipeline);
 
 const { yellow } = require("chalk");
 
 const {
     readableFromString,
     ModuleExtractor,
-    Prepender
+    Prepender,
+    Tap
 } = require("./streams.js");
 
 const { validateArgv } = require("./validators.js");
@@ -258,22 +256,34 @@ const closeModule = (output, { moduleType: type }, start = 0) => {
 const pipeAndAddSeparator = (state, separator) =>
 
     /**
-     * @param {NodeJS.ReadableStream} input
+     * @param {import("stream").Readable} input
      * @param {NodeJS.WritableStream} output
      * @returns {Promise<number>}
      */
     async (input, output, start) => {
         const { extractor } = state;
 
-        start = start > 0 ? start - 2 : 0;
+        try {
+            const outputStream = fs.createWriteStream(output, { flags: "r+", start });
 
-        const outputStream = fs.createWriteStream(output, { flags: "r+", start });
+            await new Promise((resolve, reject) => {
+                input.on("error", reject);
+                outputStream.on("error", reject);
+                input.on("end", () => {
+                    outputStream.write(`${separator}\n`, () => {
+                        outputStream.close();
+                        resolve();
+                    });
+                });
 
-        await asyncPipeline(
-            input,
-            extractor,
-            outputStream
-        );
+                input
+                    .pipe(extractor, { end: false })
+                    .pipe(outputStream);
+            });
+        }
+        catch (error) {
+            log(`Failed to pipe entry:\n${error}`);
+        }
 
         const { currentSize } = extractor;
         extractor.resetCurrentSize();
@@ -347,8 +357,11 @@ const pipeEntry = (state, {
 
 /**
  * @summary Pipes source files into dist
- * @param {State} state
- * @param {string} path 
+ * @param {{
+ *  path : string,
+ *  state : State
+ * }} param0
+ * 
  * @param {DistributorArgs} argv
  * @param {number} [startFrom]
  * @returns {Promise<number>}
@@ -363,7 +376,7 @@ const readAndPipe = async ({
 
         const { moduleConfig, output } = argv;
 
-        const { size: distSize } = fs.statSync(output);
+        const { size } = fs.statSync(output);
 
         const entries = await iterateEntries(path, topLevelEntries, argv);
 
@@ -375,7 +388,7 @@ const readAndPipe = async ({
             startFrom += await preparedProcessing(startFrom, entry);
         });
 
-        (startFrom < distSize) && asyncTrunc(output, startFrom);
+        (startFrom < size) && await asyncTrunc(output, startFrom);
 
         startFrom = closeModule(output, moduleConfig, startFrom);
 
@@ -407,13 +420,6 @@ const exportToDist = async (argv) => {
         extractor: new ModuleExtractor()
     };
 
-    //workaround for restarting stream
-    state.extractor.on("end", () => {
-        const newExtractor = new ModuleExtractor();
-        newExtractor.inherit(state.extractor);
-        state.extractor = newExtractor;
-    });
-
     try {
         const status = await asyncExists(output);
 
@@ -432,29 +438,41 @@ const exportToDist = async (argv) => {
         log(error);
     }
 
-    log("Finished preparing output");
+    log("Finished preparing output\n");
 
     try {
         await readAndPipe({ state, path: source }, argv);
 
         const { extractor } = state;
-        const { parsedImports } = extractor;
+        
 
-        const prepender = new Prepender({
-            prepend: parsedImports,
-            recursive: true,
-            outName: output,
-            srcName: output
+        await new Promise((resolve,reject) => {
+
+            extractor.end(async (err) => {
+                if(err) {
+                    return reject(err);
+                }
+                
+                const prepender = new Prepender({
+                    prepend: extractor.parsedImports,
+                    recursive: true,
+                    outName: output,
+                    srcName: output
+                });
+
+                await prepender.start();
+                resolve();
+            });
+
+
         });
-
-        await prepender.start();
 
     }
     catch (error) {
         log(error);
     }
 
-    log(`Finished exporting:\n${output}`);
+    log(`\nFinished exporting:\n${output}`);
 };
 
 /**

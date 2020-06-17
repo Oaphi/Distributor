@@ -2,25 +2,20 @@ const { expect } = require("chai");
 
 const {
     appendFileSync,
-    createReadStream,
     createWriteStream,
-    mkdtempSync,
-    unlinkSync
+    mkdtempSync
 } = require("fs");
 
 const { unlink } = require("fs").promises;
 
-const { Writable, Readable, pipeline } = require("stream");
+const { Readable, pipeline } = require("stream");
 
 const { promisify } = require("util");
 const asyncPipeline = promisify(pipeline);
 
 const OS = require("os");
 
-const {
-    ModuleExtractor,
-    Prepender
-} = require("../src/streams.js");
+const { ModuleExtractor, Prepender } = require("../src/streams.js");
 
 const {
     removeDirRecursive
@@ -91,7 +86,6 @@ describe('Intergration Test', function () {
             const prepender = new Prepender({
                 onSuccess: (event) => {
                     const { outputName, sizeAdded, sourceName } = event;
-                    
                     expect(outputName).to.equal(outTestName);
                     expect(sourceName).to.equal(outTestName);
                     expect(sizeAdded).to.equal(Buffer.byteLength( parsedImports ));

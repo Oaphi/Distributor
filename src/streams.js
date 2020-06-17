@@ -351,7 +351,7 @@ class ModuleExtractor extends LineInspector {
         this.setInspector(
             (line) => this.matchRequire(line)
         );
-
+        
         this.on("finish", () => {
             const { imports, parsedImports } = this;
 
@@ -392,18 +392,6 @@ class ModuleExtractor extends LineInspector {
             const prefixNewline = parsedImports ? CHARS.NEWLINE : "";
             this.parsedImports += `${prefixNewline}${importLines.join(CHARS.NEWLINE)}`;
         });
-    }
-
-    /**
-     * @summary inheits imports from another stream
-     * @param {ModuleExtractor} stream 
-     * @returns {ModuleExtractor}
-     */
-    inherit(stream) {
-        const { imports, parsedImports } = stream;
-        this.imports = imports;
-        this.parsedImports = parsedImports;
-        return this;
     }
 
     /**
