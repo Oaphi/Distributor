@@ -17,14 +17,10 @@ const { getQuasiUniqueHexString, log } = require("./utilities.js");
 
 const OS = require("os");
 const pt = require('path');
-const { tsInstall } = require("./typescript.js");
-
-const BYTES = {
-    NEWLINE: 10
-};
 
 const CHARS = {
-    NEWLINE: "\n"
+    LF: "\n",
+    CR: "\r"
 };
 
 /**
@@ -47,29 +43,24 @@ const CHARS = {
  */
 
 /**
+ * @typedef {import("stream").ReadableOptions} ReadableOptions
+ * 
  * @summary creates Readable Stream and prepushes a string to it
  * @param {string} data 
- * @param {import("stream").ReadableOptions} options 
+ * @param {ReadableOptions} options
  * @returns {NodeJS.ReadableStream}
  */
 const readableFromString = (data, options = {}) => {
-    const combinedOptions = Object.assign({}, options, { read() { } });
+
+    /** @type {ReadableOptions} */
+    const immutableOptions = { read() { } };
+
+    const combinedOptions = Object.assign({}, options, immutableOptions);
     const stream = new Readable(combinedOptions);
-    stream.push(data);
+
+    stream.push(data + CHARS.LF);
     stream.push(null);
     return stream;
-};
-
-/**
- * @summary shifts buffer until newlines no longer at start
- * @param {Buffer} buffer 
- * @returns {Buffer}
- */
-const shiftWhileNewLineAtStart = (buffer, newLineByte) => {
-    while (buffer[0] === newLineByte) {
-        buffer = buffer.slice(1);
-    }
-    return buffer;
 };
 
 /**
@@ -228,7 +219,7 @@ class Prepender extends Writable {
             if (!alreadyPrepended) {
                 const { prepend } = this;
 
-                const separatedPrepend = prepend + CHARS.NEWLINE;
+                const separatedPrepend = prepend + CHARS.LF;
 
                 tmpStream.write(separatedPrepend);
 
@@ -258,7 +249,7 @@ class LineInspector extends Transform {
 
     /**
      * @summary implementation of _transform
-     * @param {string|Buffer} chunk 
+     * @param {Buffer} chunk 
      * @param {strting} encoding
      * @param {function} callback
      * @returns {void}
@@ -272,43 +263,29 @@ class LineInspector extends Transform {
 
     /**
      * @summary Breaks a chunk into lines
-     * @param {string|Buffer} chunk 
+     * @param {Buffer} chunk 
      * @returns {void}
      */
     breakAndInspect(chunk) {
 
         const { inspector } = this;
 
-        const bufferized = shiftWhileNewLineAtStart(
-            Buffer.from(chunk),
-            BYTES.NEWLINE
-        );
+        const stringified = chunk.toString();
 
-        const linecharBytes = [];
+        const linesLF = stringified.split(CHARS.LF);
+        const linesCR = stringified.split(CHARS.CR);
 
-        for (const byte of bufferized) {
-            if (byte === BYTES.NEWLINE) {
-                break;
-            }
+        const isLF = linesLF > linesCR;
+        const lines = isLF ? linesLF : linesCR;
 
-            linecharBytes.push(byte);
-        }
+        lines.forEach(line => {
+            const modified = inspector(line, Buffer.byteLength(line));
 
-        const line = Buffer.from(linecharBytes).toString();
-        const modified = inspector(line, linecharBytes);
+            const lineAdded = modified + (isLF ? CHARS.LF : CHARS.CR);
 
-        this.currentSize += Buffer.byteLength(modified);
-
-        this.push(modified);
-
-        const { length } = linecharBytes;
-        const { length: bufferedLength } = bufferized;
-
-        if (length === bufferedLength) {
-            return;
-        }
-
-        return this.breakAndInspect(bufferized.slice(length));
+            this.push(lineAdded);
+            this.currentSize += Buffer.byteLength(lineAdded);
+        });
     }
 
     /**
@@ -346,13 +323,14 @@ class ModuleExtractor extends LineInspector {
 
         this.parsedImports = "";
 
-        this.moduleRegExp = /(const|var|let)\s*({?)\s*((?:[\w$]+\s*(?:(?::?\s*\w+\s*)*),?\s*)+)}?\s*=\s*require\s*\((?:"|')([\w/.:-]+)(?:"|')\)\.?(\w+)?/;
+        this.moduleRegExp = /(const|var|let)\s*({?)((?:(?:\s*[\w$@]+\s*:)*\s*[\w$@]+\s*,?\s*)+)}?\s*=\s*require\s*\((?:"|'|`)([\w/{.$:}-]+)(?:"|'|`)\)(?:\.(\w+))?/;
 
         this.setInspector(
             (line) => this.matchRequire(line)
         );
-        
+
         this.on("finish", () => {
+
             const { imports, parsedImports } = this;
 
             const importLines = Object
@@ -389,9 +367,18 @@ class ModuleExtractor extends LineInspector {
                     return requires;
                 });
 
-            const prefixNewline = parsedImports ? CHARS.NEWLINE : "";
-            this.parsedImports += `${prefixNewline}${importLines.join(CHARS.NEWLINE)}`;
+            const prefixNewline = parsedImports ? CHARS.LF : "";
+            this.parsedImports += `${prefixNewline}${importLines.join(CHARS.LF)}`;
         });
+    }
+
+    /**
+     * @summary line quicktest for require statement
+     * @param {string} line 
+     * @returns {boolean}
+     */
+    testForRequire(line) {
+        return /\brequire(?:\(|\s*\()/.test(line);
     }
 
     /**
@@ -399,13 +386,16 @@ class ModuleExtractor extends LineInspector {
      * @returns {string}
      */
     matchRequire(line) {
-
         const { moduleRegExp, imports } = this;
+
+        if (!this.testForRequire(line)) {
+            return line;
+        }
 
         const matched = line.match(moduleRegExp);
 
         if (!matched) {
-            return line + CHARS.NEWLINE;
+            return line;
         }
 
         const trimmed = matched.map(group => group ? group.trim() : "");

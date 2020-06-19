@@ -33,6 +33,8 @@ const {
 } = require("./utilities.js");
 
 const { makeJobQueue } = require("./queue.js");
+const { isCatchClause } = require("typescript");
+const { reject, size } = require("lodash");
 
 /**
  * @typedef {import("./validators.js").DistributorArgs} DistributorArgs
@@ -249,6 +251,39 @@ const closeModule = (output, { moduleType: type }, start = 0) => {
 };
 
 /**
+ * @typedef {import("stream").Readable} Readable
+ * @typedef {import("stream").Writable} Writable
+ */
+
+/**
+ * @summary utility for properly listening for error event
+ * @param {function(Error):void} logger
+ * @param {function(Error):void} rejector
+ * @param {Readable|Writable} streamToListen
+ * @param {...Readable|Writable} streamsToEnd
+ * @returns {Readable|Writable}
+ */
+const onErrorLogAndReject = (logger, rejector, streamToListen, ...streamsToEnd) => {
+    const validated = streamsToEnd.length ? streamsToEnd : [streamToListen];
+
+    streamToListen.on("error", (error) => {
+        logger(error);
+
+        validated.forEach((stream, i) => {
+            stream.on("end", () => {
+                const nextStream = validated[i + 1];
+                nextStream || rejector(error);
+                nextStream.emit("end");
+            });
+        });
+
+        validated[0].emit("end");
+    });
+
+    return streamToListen;
+};
+
+/**
  * @summary pipes stream through extractor and appends separator
  * @param {State} state
  * @param {string} separator 
@@ -256,8 +291,9 @@ const closeModule = (output, { moduleType: type }, start = 0) => {
 const pipeAndAddSeparator = (state, separator) =>
 
     /**
-     * @param {import("stream").Readable} input
-     * @param {NodeJS.WritableStream} output
+     * @param {Readable} input
+     * @param {Writable} output
+     * @param {number} [start]
      * @returns {Promise<number>}
      */
     async (input, output, start) => {
@@ -267,18 +303,15 @@ const pipeAndAddSeparator = (state, separator) =>
             const outputStream = fs.createWriteStream(output, { flags: "r+", start });
 
             await new Promise((resolve, reject) => {
-                input.on("error", reject);
-                outputStream.on("error", reject);
-                input.on("end", () => {
-                    outputStream.write(`${separator}\n`, () => {
-                        outputStream.close();
-                        resolve();
-                    });
-                });
 
-                input
-                    .pipe(extractor, { end: false })
-                    .pipe(outputStream);
+                onErrorLogAndReject(log, reject, input, outputStream);
+                onErrorLogAndReject(log, reject, outputStream);
+
+                outputStream.on("finish", resolve);
+
+                input.on("end", () => outputStream.end(`${separator}`, resolve));
+
+                input.pipe(extractor, { end: false }).pipe(outputStream);
             });
         }
         catch (error) {
@@ -287,7 +320,7 @@ const pipeAndAddSeparator = (state, separator) =>
 
         const { currentSize } = extractor;
         extractor.resetCurrentSize();
-        return currentSize + Buffer.byteLength(separator) + 1;
+        return currentSize + Buffer.byteLength(separator);
     };
 
 /**
@@ -339,7 +372,6 @@ const pipeEntry = (state, {
         if (PipedFile.isTS && tsInstalled) {
 
             const tsc = require("typescript");
-
             const { compilerOptions } = require(tsConfig);
 
             const content = await asyncReadfile(fullPath, { encoding: "utf-8" });
@@ -348,7 +380,7 @@ const pipeEntry = (state, {
                 content, { compilerOptions }
             );
 
-            const inputStream = readableFromString(`${outputText}\n${separator}`);
+            const inputStream = readableFromString(outputText);
             return commonPipeAndSeparate(inputStream, output, start);
         }
     };
@@ -385,6 +417,9 @@ const readAndPipe = async ({
         const preparedProcessing = pipeEntry(state, argv);
 
         await forAwait(entries, async (entry) => {
+            state.currentEntry = {
+                name: entry.name
+            };
             startFrom += await preparedProcessing(startFrom, entry);
         });
 
@@ -400,7 +435,11 @@ const readAndPipe = async ({
 };
 
 /**
+ * @typedef {object} ProcessedEntry
+ * @property {string} name
+ * 
  * @typedef {object} State
+ * @property {ProcessedEntry} currentEntry
  * @property {ModuleExtractor} extractor
  */
 
@@ -417,6 +456,7 @@ const exportToDist = async (argv) => {
 
     /** @type {State} */
     const state = {
+        currentEntry: null,
         extractor: new ModuleExtractor()
     };
 
@@ -444,15 +484,17 @@ const exportToDist = async (argv) => {
         await readAndPipe({ state, path: source }, argv);
 
         const { extractor } = state;
-        
 
-        await new Promise((resolve,reject) => {
+
+        await new Promise((resolve, reject) => {
 
             extractor.end(async (err) => {
-                if(err) {
+                if (err) {
                     return reject(err);
                 }
-                
+
+                console.log(extractor.parsedImports);
+
                 const prepender = new Prepender({
                     prepend: extractor.parsedImports,
                     recursive: true,
