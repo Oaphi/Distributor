@@ -16,7 +16,7 @@ As of version 1.4.0, the package will merge identical requires of CommonJS modul
 # CLI options
 
 Distributor module comes with a complete highly configurable CLI.
-Options avaiable in latest (1.4.2) version of the module are:
+Options avaiable in latest (1.4.3) version of the module are:
 
 ````
 cli.js
