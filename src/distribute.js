@@ -493,8 +493,6 @@ const exportToDist = async (argv) => {
                     return reject(err);
                 }
 
-                console.log(extractor.parsedImports);
-
                 const prepender = new Prepender({
                     prepend: extractor.parsedImports,
                     recursive: true,
